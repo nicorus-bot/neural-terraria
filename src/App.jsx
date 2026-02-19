@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 // Constants
 const WORLD_WIDTH = 150;
-const WORLD_HEIGHT = 100; // Increased for Underworld
+const WORLD_HEIGHT = 100;
 const TILE_SIZE = 32;
 const GRAVITY = 0.45;
 const JUMP_FORCE = -9.5;
@@ -86,11 +86,11 @@ const App = () => {
             const row = [];
             for (let x = 0; x < WORLD_WIDTH; x++) {
                 const surfaceY = 25 + Math.sin(x * 0.1) * 3;
-                if (y > WORLD_HEIGHT - 15) row.push(Math.random() < 0.3 ? TILE_TYPES.LAVA : TILE_TYPES.ASH); // Hell
-                else if (y > WORLD_HEIGHT - 25) row.push(TILE_TYPES.HELLSTONE); // Hell Border
-                else if (y > surfaceY + 20) row.push(TILE_TYPES.STONE); // Deep
-                else if (y > surfaceY) row.push(TILE_TYPES.DIRT); // Underground
-                else if (y > surfaceY - 1) row.push(TILE_TYPES.GRASS); // Surface
+                if (y > WORLD_HEIGHT - 15) row.push(Math.random() < 0.3 ? TILE_TYPES.LAVA : TILE_TYPES.ASH);
+                else if (y > WORLD_HEIGHT - 25) row.push(TILE_TYPES.HELLSTONE);
+                else if (y > surfaceY + 20) row.push(TILE_TYPES.STONE);
+                else if (y > surfaceY) row.push(TILE_TYPES.DIRT);
+                else if (y > surfaceY - 1) row.push(TILE_TYPES.GRASS);
                 else row.push(TILE_TYPES.AIR);
             }
             newWorld.push(row);
@@ -98,7 +98,8 @@ const App = () => {
         worldRef.current = newWorld;
         enemiesRef.current = [
             { type: 'KING_SLIME', x: 800, y: 100, vx: 0, vy: 0, w: 120, h: 90, hp: 500, maxHp: 500, lastJump: 0, lastHit: 0 },
-            { type: 'MOON_LORD', x: 2000, y: 0, vx: 0, vy: 0, w: 400, h: 600, hp: 10000, maxHp: 10000, lastAttack: 0, lastHit: 0 }
+            { type: 'ZOMBIE', x: 400, y: 100, vx: 0, vy: 0, w: 20, h: 36, hp: 50, maxHp: 50, lastHit: 0 },
+            { type: 'SLIME', x: 600, y: 100, vx: 0, vy: 0, w: 24, h: 18, hp: 20, maxHp: 20, lastJump: 0, lastHit: 0 }
         ];
         npcsRef.current = [{ type: 'GUIDE', x: 300, y: 100, vx: 0, vy: 0, w: 20, h: 36, dir: 1 }];
 
@@ -125,11 +126,6 @@ const App = () => {
         cameraRef.current.x += (p.x - window.innerWidth / 2 - cameraRef.current.x) * 0.1;
         cameraRef.current.y += (p.y - window.innerHeight / 2 - cameraRef.current.y) * 0.1;
 
-        // Hardmode trigger
-        if (!isHardMode && enemiesRef.current.some(en => en.type === 'MOON_LORD' && en.hp <= 0)) {
-            setIsHardMode(true);
-        }
-
         projectilesRef.current = projectilesRef.current.filter(proj => {
             proj.life -= 0.02; proj.x += proj.vx; proj.y += proj.vy; proj.angle += 0.2;
             enemiesRef.current.forEach(en => {
@@ -139,16 +135,14 @@ const App = () => {
             return proj.life > 0;
         });
 
-        enemiesRef.current.forEach(en => {
-            if (en.type === 'KING_SLIME') {
-                en.vy += GRAVITY; en.y += en.vy;
-                const tx = Math.floor((en.x + en.w/2) / TILE_SIZE), ty = Math.floor((en.y + en.h) / TILE_SIZE);
-                if (worldRef.current[ty] && worldRef.current[ty][tx] !== TILE_TYPES.AIR) { en.y = ty * TILE_SIZE - en.h; en.vy = 0; if (Date.now() - en.lastJump > 2000) { en.vy = -12; en.vx = (p.x - en.x > 0 ? 1 : -1) * 3; en.lastJump = Date.now(); } }
-                en.x += en.vx; en.vx *= 0.95;
-            }
-            if (en.type === 'MOON_LORD') {
-                en.y += (p.y - 450 - en.y) * 0.02; en.x += (p.x - en.w/2 - en.x) * 0.02;
-            }
+        enemiesRef.current = enemiesRef.current.filter(en => {
+            if (en.hp <= 0) return false;
+            en.vy += GRAVITY; en.y += en.vy;
+            const tx = Math.floor((en.x + en.w/2) / TILE_SIZE), ty = Math.floor((en.y + en.h) / TILE_SIZE);
+            if (worldRef.current[ty] && worldRef.current[ty][tx] !== TILE_TYPES.AIR) { en.y = ty * TILE_SIZE - en.h; en.vy = 0; if (en.type.includes('SLIME') && Date.now() - en.lastJump > 2000) { en.vy = en.type === 'KING_SLIME' ? -12 : -6; en.vx = (p.x - en.x > 0 ? 1 : -1) * (en.type === 'KING_SLIME' ? 3 : 2); en.lastJump = Date.now(); } }
+            if (en.type === 'ZOMBIE') { en.vx = (p.x - en.x > 0 ? 1 : -1) * 1.5; }
+            en.x += en.vx; en.vx *= 0.95;
+            return true;
         });
 
         npcsRef.current.forEach(n => {
@@ -180,10 +174,7 @@ const App = () => {
         const canvas = canvasRef.current; if (!canvas) return; const ctx = canvas.getContext('2d'); const cam = cameraRef.current;
         const p = playerRef.current;
         const depth = Math.floor(p.y / TILE_SIZE);
-        let bgColor = '#87CEEB';
-        if (depth > WORLD_HEIGHT - 30) bgColor = '#1a0505'; // Underworld Sky
-        else if (depth > 30) bgColor = '#2c2c2c'; // Underground
-        
+        let bgColor = '#87CEEB'; if (depth > WORLD_HEIGHT - 30) bgColor = '#1a0505'; else if (depth > 30) bgColor = '#2c2c2c';
         ctx.fillStyle = bgColor; ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.save(); ctx.translate(-Math.floor(cam.x), -Math.floor(cam.y));
         const startX = Math.max(0, Math.floor(cam.x / TILE_SIZE)), endX = Math.min(WORLD_WIDTH, Math.ceil((cam.x + canvas.width) / TILE_SIZE));
@@ -192,43 +183,30 @@ const App = () => {
             for (let x = startX; x < endX; x++) {
                 const tile = worldRef.current[y][x];
                 if (tile !== TILE_TYPES.AIR) {
-                    const pattern = PIXEL_PATTERNS[tile];
-                    const pSize = TILE_SIZE / 8;
-                    if (pattern) {
-                        pattern.forEach((row, ry) => { row.forEach((pixel, rx) => {
-                            if (pixel === 0) ctx.fillStyle = 'rgba(0,0,0,0.15)';
-                            else if (pixel === 2) ctx.fillStyle = isHardMode ? '#ff00ff' : '#66BB6A';
-                            else ctx.fillStyle = TILE_COLORS[tile];
-                            ctx.fillRect(x * TILE_SIZE + rx * pSize, y * TILE_SIZE + ry * pSize, pSize, pSize);
-                        }); });
-                    } else { ctx.fillStyle = TILE_COLORS[tile]; ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE); }
-                    if (tile === TILE_TYPES.LAVA) { ctx.shadowBlur = 15; ctx.shadowColor = '#FF4500'; } else ctx.shadowBlur = 0;
+                    const pattern = PIXEL_PATTERNS[tile]; const pSize = TILE_SIZE / 8;
+                    if (pattern) { pattern.forEach((row, ry) => { row.forEach((pixel, rx) => {
+                        if (pixel === 0) ctx.fillStyle = 'rgba(0,0,0,0.15)';
+                        else if (pixel === 2) ctx.fillStyle = isHardMode ? '#ff00ff' : '#66BB6A';
+                        else ctx.fillStyle = TILE_COLORS[tile];
+                        ctx.fillRect(x * TILE_SIZE + rx * pSize, y * TILE_SIZE + ry * pSize, pSize, pSize);
+                    }); }); }
+                    else { ctx.fillStyle = TILE_COLORS[tile]; ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE); }
                 }
             }
         }
-        
-        // Draw Player
         ctx.save(); ctx.translate(p.x + p.w / 2, p.y + p.h / 2); if (p.vx < 0) ctx.scale(-1, 1);
         ctx.fillStyle = '#37474F'; ctx.fillRect(-12, -20, 24, 16); ctx.fillStyle = '#00E5FF'; ctx.fillRect(2, -14, 10, 4);
         ctx.fillStyle = '#455A64'; ctx.fillRect(-10, -4, 20, 20); ctx.fillStyle = '#D32F2F';
         ctx.beginPath(); ctx.moveTo(-10, -4); ctx.lineTo(-25, 4); ctx.lineTo(-10, 18); ctx.fill(); ctx.restore();
-
-        // Draw NPCs
-        npcsRef.current.forEach(n => {
-            ctx.fillStyle = '#FFCC80'; ctx.fillRect(n.x, n.y + 10, n.w, n.h - 10); // Body
-            ctx.fillStyle = '#8D6E63'; ctx.fillRect(n.x, n.y, n.w, 12); // Hair
-        });
-
-        // Draw Enemies & Zenith
+        npcsRef.current.forEach(n => { ctx.fillStyle = '#FFCC80'; ctx.fillRect(n.x, n.y + 10, n.w, n.h - 10); ctx.fillStyle = '#8D6E63'; ctx.fillRect(n.x, n.y, n.w, 12); });
         projectilesRef.current.forEach(proj => {
             ctx.save(); ctx.translate(proj.x, proj.y); ctx.rotate(proj.angle); ctx.shadowBlur = 15; ctx.shadowColor = proj.color; ctx.fillStyle = proj.color;
             ctx.beginPath(); ctx.moveTo(0, -20); ctx.lineTo(5, 0); ctx.lineTo(0, 5); ctx.lineTo(-5, 0); ctx.closePath(); ctx.fill(); ctx.restore();
         });
         enemiesRef.current.forEach(en => {
-            if (en.hp <= 0) return;
-            ctx.save(); 
-            if (en.type === 'KING_SLIME') { ctx.fillStyle = 'rgba(0, 150, 255, 0.7)'; ctx.beginPath(); ctx.arc(en.x + en.w/2, en.y + en.h/2, en.w/2, 0, Math.PI*2); ctx.fill(); }
-            if (en.type === 'MOON_LORD') { ctx.fillStyle = 'rgba(100, 150, 150, 0.6)'; ctx.beginPath(); ctx.moveTo(en.x, en.y+en.h); ctx.lineTo(en.x+en.w/2, en.y); ctx.lineTo(en.x+en.w, en.y+en.h); ctx.fill(); }
+            ctx.save(); if (en.type === 'KING_SLIME') { ctx.fillStyle = 'rgba(0, 150, 255, 0.7)'; ctx.beginPath(); ctx.arc(en.x + en.w/2, en.y + en.h/2, en.w/2, 0, Math.PI*2); ctx.fill(); }
+            else if (en.type === 'ZOMBIE') { ctx.fillStyle = '#4a5d23'; ctx.fillRect(en.x, en.y, en.w, en.h); }
+            else { ctx.fillStyle = 'rgba(0, 255, 100, 0.8)'; ctx.beginPath(); ctx.arc(en.x + en.w/2, en.y + en.h/2, en.w/2, 0, Math.PI*2); ctx.fill(); }
             ctx.restore();
         });
         ctx.restore();
@@ -237,35 +215,16 @@ const App = () => {
     const handleAction = (e) => {
         if (e.cancelable) e.preventDefault();
         const rect = canvasRef.current.getBoundingClientRect();
-        let clientX, clientY;
-        
-        if (e.touches && e.touches.length > 0) {
-            clientX = e.touches[0].clientX;
-            clientY = e.touches[0].clientY;
-        } else {
-            clientX = e.clientX;
-            clientY = e.clientY;
-        }
-        
-        const mouseX = clientX - rect.left + cameraRef.current.x;
-        const mouseY = clientY - rect.top + cameraRef.current.y;
-        
+        let cX, cY;
+        if (e.touches && e.touches.length > 0) { cX = e.touches[0].clientX; cY = e.touches[0].clientY; }
+        else { cX = e.clientX; cY = e.clientY; }
+        const mouseX = cX - rect.left + cameraRef.current.x; const mouseY = cY - rect.top + cameraRef.current.y;
         const currentItem = inventory[selectedSlot];
         if (currentItem.type === 'ZENITH') {
-            const p = playerRef.current;
-            const colors = ['#00f2ff','#bf00ff','#ff0055','#33ff00','#ffff00'];
+            const p = playerRef.current; const colors = ['#00f2ff','#bf00ff','#ff0055','#33ff00','#ffff00'];
             for (let i = 0; i < 8; i++) {
                 const angle = Math.atan2(mouseY - (p.y + p.h/2), mouseX - (p.x + p.w/2)) + (Math.random() - 0.5) * 0.4;
-                const speed = 10 + Math.random() * 5;
-                projectilesRef.current.push({
-                    x: p.x + p.w / 2,
-                    y: p.y + p.h / 2,
-                    vx: Math.cos(angle) * speed,
-                    vy: Math.sin(angle) * speed,
-                    angle: Math.random() * Math.PI * 2,
-                    color: colors[Math.floor(Math.random() * colors.length)],
-                    life: 1.0
-                });
+                projectilesRef.current.push({ x: p.x + p.w / 2, y: p.y + p.h / 2, vx: Math.cos(angle) * 12, vy: Math.sin(angle) * 12, angle: Math.random() * Math.PI * 2, color: colors[Math.floor(Math.random() * colors.length)], life: 1.0 });
             }
             return;
         }
@@ -278,12 +237,7 @@ const App = () => {
 
     return (
         <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', position: 'relative', touchAction: 'none' }}>
-            <canvas 
-                ref={canvasRef} 
-                onMouseDown={handleAction} 
-                onTouchStart={handleAction}
-                style={{ display: 'block' }} 
-            />
+            <canvas ref={canvasRef} onMouseDown={handleAction} onTouchStart={handleAction} style={{ display: 'block' }} />
             <div style={{ position: 'fixed', top: '20px', left: '20px', display: 'flex', gap: '12px', zIndex: 100, alignItems: 'center' }}>
                 {inventory.map((item, idx) => (
                     <div key={idx} onClick={() => setSelectedSlot(idx)} style={{ width: '50px', height: '50px', background: selectedSlot === idx ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255,255,255,0.4)', border: selectedSlot === idx ? '4px solid #ff4081' : '2px solid rgba(0,0,0,0.2)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
@@ -292,38 +246,19 @@ const App = () => {
                 ))}
                 <div onClick={() => setIsMuted(!isMuted)} style={{ width: '50px', height: '50px', background: isMuted ? 'rgba(255, 0, 85, 0.4)' : 'rgba(0, 242, 255, 0.4)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '20px', border: '2px solid #fff' }}>{isMuted ? '🔇' : '🔊'}</div>
             </div>
-            <div style={{ position: 'fixed', top: '20px', right: '20px', color: '#fff', fontSize: '1.2em', fontWeight: 'bold', textShadow: '2px 2px rgba(0,0,0,0.5)', fontFamily: 'Orbitron' }}>NEURAL TERRARIA v10 {isHardMode ? '(HARDMODE)' : ''}</div>
+            <div style={{ position: 'fixed', top: '20px', right: '20px', color: '#fff', fontSize: '1.2em', fontWeight: 'bold', textShadow: '2px 2px rgba(0,0,0,0.5)', fontFamily: 'Orbitron' }}>NEURAL TERRARIA v11</div>
             {isMobile && (
                 <div style={{ position: 'fixed', bottom: '30px', left: 0, right: 0, display: 'flex', justifyContent: 'space-between', padding: '0 30px', zIndex: 100, pointerEvents: 'none' }}>
                     <div style={{ display: 'flex', gap: '15px', pointerEvents: 'auto' }}>
-                        <button 
-                            onContextMenu={(e) => e.preventDefault()}
-                            onTouchStart={(e) => { e.preventDefault(); keysRef.current['KeyA'] = true; }} 
-                            onTouchEnd={(e) => { e.preventDefault(); keysRef.current['KeyA'] = false; }} 
-                            onTouchCancel={(e) => { e.preventDefault(); keysRef.current['KeyA'] = false; }}
-                            className="ctrl-btn"
-                        >←</button>
-                        <button 
-                            onContextMenu={(e) => e.preventDefault()}
-                            onTouchStart={(e) => { e.preventDefault(); keysRef.current['KeyD'] = true; }} 
-                            onTouchEnd={(e) => { e.preventDefault(); keysRef.current['KeyD'] = false; }} 
-                            onTouchCancel={(e) => { e.preventDefault(); keysRef.current['KeyD'] = false; }}
-                            className="ctrl-btn"
-                        >→</button>
+                        <button onContextMenu={(e) => e.preventDefault()} onTouchStart={(e) => { e.preventDefault(); keysRef.current['KeyA'] = true; }} onTouchEnd={(e) => { e.preventDefault(); keysRef.current['KeyA'] = false; }} onTouchCancel={(e) => { e.preventDefault(); keysRef.current['KeyA'] = false; }} className="ctrl-btn">←</button>
+                        <button onContextMenu={(e) => e.preventDefault()} onTouchStart={(e) => { e.preventDefault(); keysRef.current['KeyD'] = true; }} onTouchEnd={(e) => { e.preventDefault(); keysRef.current['KeyD'] = false; }} onTouchCancel={(e) => { e.preventDefault(); keysRef.current['KeyD'] = false; }} className="ctrl-btn">→</button>
                     </div>
                     <div style={{ pointerEvents: 'auto' }}>
-                        <button 
-                            onContextMenu={(e) => e.preventDefault()}
-                            onTouchStart={(e) => { e.preventDefault(); keysRef.current['Space'] = true; }} 
-                            onTouchEnd={(e) => { e.preventDefault(); keysRef.current['Space'] = false; }} 
-                            onTouchCancel={(e) => { e.preventDefault(); keysRef.current['Space'] = false; }}
-                            className="ctrl-btn" 
-                            style={{ width: '100px', height: '100px', borderRadius: '50%', background: 'rgba(255, 64, 129, 0.4)' }}
-                        >JUMP</button>
+                        <button onContextMenu={(e) => e.preventDefault()} onTouchStart={(e) => { e.preventDefault(); keysRef.current['Space'] = true; }} onTouchEnd={(e) => { e.preventDefault(); keysRef.current['Space'] = false; }} onTouchCancel={(e) => { e.preventDefault(); keysRef.current['Space'] = false; }} className="ctrl-btn" style={{ width: '100px', height: '100px', borderRadius: '50%', background: 'rgba(255, 64, 129, 0.4)' }}>JUMP</button>
                     </div>
                 </div>
             )}
-            <style>{`.ctrl-btn { width: 80px; height: 80px; background: rgba(255,255,255,0.2); border: 2px solid #fff; border-radius: 20px; color: #fff; font-weight: bold; font-size: 2em; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(8px); }`}</style>
+            <style>{`.ctrl-btn { width: 80px; height: 80px; background: rgba(255,255,255,0.2); border: 2px solid #fff; border-radius: 20px; color: #fff; font-weight: bold; font-size: 2em; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(8px); -webkit-tap-highlight-color: transparent; }`}</style>
         </div>
     );
 };
