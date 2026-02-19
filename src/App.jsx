@@ -26,9 +26,12 @@ const App = () => {
     const keysRef = useRef({});
     const cameraRef = useRef({ x: 0, y: 0 });
     const projectilesRef = useRef([]); // Zenith projectiles
+    const enemiesRef = useRef([]); // King Slime and others
     
     const [selectedSlot, setSelectedSlot] = useState(0);
     const [isMobile, setIsMobile] = useState(false);
+    const [spawnBoss, setSpawnBoss] = useState(false);
+
     const inventory = [
         { type: TILE_TYPES.DIRT, color: TILE_COLORS[TILE_TYPES.DIRT] },
         { type: TILE_TYPES.WOOD, color: TILE_COLORS[TILE_TYPES.WOOD] },
@@ -43,7 +46,7 @@ const App = () => {
         for (let y = 0; y < WORLD_HEIGHT; y++) {
             const row = [];
             for (let x = 0; x < WORLD_WIDTH; x++) {
-                const surfaceY = 15 + Math.sin(x * 0.1) * 3; // Rolling hills
+                const surfaceY = 25 + Math.sin(x * 0.1) * 3; // Lower surface
                 if (y > surfaceY + 5) row.push(TILE_TYPES.STONE);
                 else if (y > surfaceY) row.push(TILE_TYPES.DIRT);
                 else if (y > surfaceY - 1) row.push(TILE_TYPES.GRASS);
@@ -52,6 +55,11 @@ const App = () => {
             newWorld.push(row);
         }
         worldRef.current = newWorld;
+        
+        // Initial Enemy Spawn
+        enemiesRef.current = [
+            { type: 'KING_SLIME', x: 800, y: 100, vx: 0, vy: 0, w: 120, h: 90, hp: 500, maxHp: 500, lastJump: 0, lastHit: 0 }
+        ];
 
         const handleResize = () => {
             if (canvasRef.current) {
@@ -125,7 +133,56 @@ const App = () => {
             proj.x += proj.vx;
             proj.y += proj.vy;
             proj.angle += 0.2;
+            
+            // Collision with enemies
+            enemiesRef.current.forEach(en => {
+                const dx = proj.x - (en.x + en.w / 2);
+                const dy = proj.y - (en.y + en.h / 2);
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < en.w / 2 + 10) {
+                    en.hp -= 2;
+                    proj.life = 0; // Destroy projectile
+                    en.lastHit = Date.now();
+                }
+            });
+            
             return proj.life > 0;
+        });
+
+        // Update Enemies
+        enemiesRef.current = enemiesRef.current.filter(en => {
+            if (en.hp <= 0) return false;
+            
+            // AI logic for King Slime
+            if (en.type === 'KING_SLIME') {
+                en.vy += GRAVITY;
+                en.y += en.vy;
+                
+                // Ground collision
+                const tx1 = Math.floor(en.x / TILE_SIZE);
+                const tx2 = Math.floor((en.x + en.w) / TILE_SIZE);
+                const ty = Math.floor((en.y + en.h) / TILE_SIZE);
+                
+                let onGround = false;
+                for (let x = tx1; x <= tx2; x++) {
+                    if (worldRef.current[ty] && worldRef.current[ty][x] !== TILE_TYPES.AIR) {
+                        en.y = ty * TILE_SIZE - en.h;
+                        en.vy = 0;
+                        onGround = true;
+                    }
+                }
+                
+                // Jumping AI
+                if (onGround && Date.now() - en.lastJump > 2000) {
+                    en.vy = -12;
+                    en.vx = (p.x - en.x > 0 ? 1 : -1) * 3;
+                    en.lastJump = Date.now();
+                }
+                
+                en.x += en.vx;
+                if (!onGround) en.vx *= 0.98; else en.vx *= 0.9;
+            }
+            return true;
         });
 
         // World Bounds
@@ -256,6 +313,41 @@ const App = () => {
             ctx.restore();
         });
 
+        // Draw Enemies
+        enemiesRef.current.forEach(en => {
+            ctx.save();
+            if (en.type === 'KING_SLIME') {
+                const isHit = Date.now() - en.lastHit < 100;
+                ctx.fillStyle = isHit ? '#fff' : 'rgba(0, 150, 255, 0.7)';
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = '#0096FF';
+                
+                // Draw Slime Body (Squash and stretch based on vy)
+                const squash = Math.min(1.2, 1 + Math.abs(en.vy) * 0.02);
+                const stretch = 1 / squash;
+                ctx.translate(en.x + en.w / 2, en.y + en.h);
+                ctx.scale(squash, stretch);
+                
+                ctx.beginPath();
+                ctx.arc(0, -en.h / 2, en.w / 2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Draw Crown
+                ctx.fillStyle = '#FFD700';
+                ctx.fillRect(-15, -en.h - 10, 30, 15);
+                ctx.beginPath();
+                ctx.moveTo(-15, -en.h - 10);
+                ctx.lineTo(-20, -en.h - 20);
+                ctx.lineTo(-10, -en.h - 10);
+                ctx.lineTo(0, -en.h - 25);
+                ctx.lineTo(10, -en.h - 10);
+                ctx.lineTo(20, -en.h - 20);
+                ctx.lineTo(15, -en.h - 10);
+                ctx.fill();
+            }
+            ctx.restore();
+        });
+
         ctx.restore();
     };
 
@@ -348,7 +440,7 @@ const App = () => {
             </div>
 
             <div style={{ position: 'fixed', top: '20px', right: '20px', color: '#fff', fontSize: '1.2em', fontWeight: 'bold', textShadow: '2px 2px rgba(0,0,0,0.5)', fontFamily: 'Orbitron' }}>
-                NEURAL TERRARIA v2
+                NEURAL TERRARIA v3
             </div>
 
             {isMobile && (
