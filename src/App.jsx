@@ -25,6 +25,7 @@ const App = () => {
     const playerRef = useRef({ x: 200, y: 100, vx: 0, vy: 0, w: 20, h: 36, onGround: false });
     const keysRef = useRef({});
     const cameraRef = useRef({ x: 0, y: 0 });
+    const projectilesRef = useRef([]); // Zenith projectiles
     
     const [selectedSlot, setSelectedSlot] = useState(0);
     const [isMobile, setIsMobile] = useState(false);
@@ -32,6 +33,7 @@ const App = () => {
         { type: TILE_TYPES.DIRT, color: TILE_COLORS[TILE_TYPES.DIRT] },
         { type: TILE_TYPES.WOOD, color: TILE_COLORS[TILE_TYPES.WOOD] },
         { type: TILE_TYPES.STONE, color: TILE_COLORS[TILE_TYPES.STONE] },
+        { type: 'ZENITH', color: 'linear-gradient(45deg, #00f2ff, #bf00ff)', isWeapon: true },
     ];
 
     // Initialization
@@ -113,6 +115,15 @@ const App = () => {
         cameraRef.current.x += (p.x - window.innerWidth / 2 - cameraRef.current.x) * 0.1;
         cameraRef.current.y += (p.y - window.innerHeight / 2 - cameraRef.current.y) * 0.1;
 
+        // Update Projectiles (Zenith)
+        projectilesRef.current = projectilesRef.current.filter(proj => {
+            proj.life -= 0.02;
+            proj.x += proj.vx;
+            proj.y += proj.vy;
+            proj.angle += 0.2;
+            return proj.life > 0;
+        });
+
         // World Bounds
         if (p.x < 0) p.x = 0;
         if (p.x > WORLD_WIDTH * TILE_SIZE - p.w) p.x = WORLD_WIDTH * TILE_SIZE - p.w;
@@ -191,6 +202,29 @@ const App = () => {
         const eyeOffset = p.vx >= 0 ? 12 : 4;
         ctx.fillRect(p.x + eyeOffset, p.y + 8, 4, 4);
 
+        // Draw Zenith Projectiles
+        projectilesRef.current.forEach(proj => {
+            ctx.save();
+            ctx.translate(proj.x, proj.y);
+            ctx.rotate(proj.angle);
+            
+            // Neon Glow
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = proj.color;
+            ctx.fillStyle = proj.color;
+            
+            // Sword shape
+            ctx.beginPath();
+            ctx.moveTo(0, -20);
+            ctx.lineTo(5, 0);
+            ctx.lineTo(0, 5);
+            ctx.lineTo(-5, 0);
+            ctx.closePath();
+            ctx.fill();
+            
+            ctx.restore();
+        });
+
         ctx.restore();
     };
 
@@ -201,6 +235,29 @@ const App = () => {
         
         const mouseX = clientX - rect.left + cameraRef.current.x;
         const mouseY = clientY - rect.top + cameraRef.current.y;
+
+        const currentItem = inventory[selectedSlot];
+
+        if (currentItem.type === 'ZENITH') {
+            // Zenith Attack!
+            const p = playerRef.current;
+            const colors = ['#00f2ff', '#bf00ff', '#ff0055', '#33ff00', '#ffff00'];
+            for (let i = 0; i < 5; i++) {
+                const angle = Math.atan2(mouseY - p.y, mouseX - p.x) + (Math.random() - 0.5) * 0.5;
+                const speed = 8 + Math.random() * 5;
+                projectilesRef.current.push({
+                    x: p.x + p.w / 2,
+                    y: p.y + p.h / 2,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    angle: Math.random() * Math.PI * 2,
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    life: 1.0
+                });
+            }
+            return;
+        }
+
         const tx = Math.floor(mouseX / TILE_SIZE);
         const ty = Math.floor(mouseY / TILE_SIZE);
 
@@ -241,7 +298,20 @@ const App = () => {
                             cursor: 'pointer', transition: 'all 0.2s', backdropFilter: 'blur(5px)'
                         }}
                     >
-                        <div style={{ width: '30px', height: '30px', backgroundColor: item.color, borderRadius: '4px' }} />
+                        <div style={{ 
+                            width: '30px', 
+                            height: '30px', 
+                            background: item.color, 
+                            borderRadius: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '12px',
+                            fontWeight: 'bold',
+                            color: '#fff'
+                        }}>
+                            {item.type === 'ZENITH' ? '⚔️' : ''}
+                        </div>
                     </div>
                 ))}
             </div>
