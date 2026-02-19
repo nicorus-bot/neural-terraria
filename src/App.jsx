@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 
-// --- ゲーム定数 ---
+// --- Constants ---
 const TILE_SIZE = 32;
 const WORLD_WIDTH = 300;
 const WORLD_HEIGHT = 150;
@@ -31,6 +31,7 @@ const App = () => {
     const [selectedSlot, setSelectedSlot] = useState(2);
     const [isMuted, setIsMuted] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
+    const [gameReady, setGameReady] = useState(false);
 
     const inventory = [
         { type: TILE_TYPES.BRICK, label: '🧱' },
@@ -40,55 +41,43 @@ const App = () => {
         { type: 'WINGS', label: '🦋' }
     ];
 
-    // --- フルスクリーン & BGM開始トリガー ---
-    const handleFirstInteraction = useCallback(() => {
-        // BGM開始
-        playTerrariaTheme();
-        
-        // フルスクリーン要請（ツールバー非表示）
-        if (!document.fullscreenElement) {
-            document.documentElement.requestFullscreen().catch(() => {
-                // iPhone Safari等では非対応の場合があるが、可能な限り実行
-            });
-        }
-        
-        window.removeEventListener('pointerdown', handleFirstInteraction);
-    }, [playTerrariaTheme]);
-
-    // --- テラリア・メインテーマ合成エンジン (Web Audio API) ---
+    // --- BGM Synthesis ---
     const playTerrariaTheme = useCallback(() => {
         if (audioCtxRef.current) return;
-        audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return;
+        
+        audioCtxRef.current = new AudioContext();
+        const ctx = audioCtxRef.current;
         
         const playNote = (freq, time, duration, vol = 0.05, type = 'triangle') => {
-            const osc = audioCtxRef.current.createOscillator();
-            const gain = audioCtxRef.current.createGain();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
             osc.type = type;
             osc.frequency.setValueAtTime(freq, time);
             gain.gain.setValueAtTime(vol, time);
             gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
-            osc.connect(gain); gain.connect(audioCtxRef.current.destination);
+            osc.connect(gain); gain.connect(ctx.destination);
             osc.start(time); osc.stop(time + duration);
         };
 
-        // メロディデータ (Overworld Day)
         const melody = [
-            { f: 392, d: 0.2 }, { f: 392, d: 0.2 }, { f: 392, d: 0.2 }, { f: 392, d: 0.2 }, // Intro G
-            { f: 261, d: 0.4 }, { f: 329, d: 0.4 }, { f: 392, d: 0.4 }, { f: 523, d: 0.4 }, // C E G C
-            { f: 493, d: 0.4 }, { f: 392, d: 0.4 }, { f: 329, d: 0.4 }, { f: 293, d: 0.8 }, // B G E D
-            { f: 349, d: 0.4 }, { f: 440, d: 0.4 }, { f: 523, d: 0.4 }, { f: 659, d: 0.4 }, // F A C E
-            { f: 587, d: 0.4 }, { f: 493, d: 0.4 }, { f: 392, d: 0.4 }, { f: 523, d: 0.8 }, // D B G C
+            { f: 392, d: 0.2 }, { f: 392, d: 0.2 }, { f: 392, d: 0.2 }, { f: 392, d: 0.2 },
+            { f: 261, d: 0.4 }, { f: 329, d: 0.4 }, { f: 392, d: 0.4 }, { f: 523, d: 0.4 },
+            { f: 493, d: 0.4 }, { f: 392, d: 0.4 }, { f: 329, d: 0.4 }, { f: 293, d: 0.8 },
+            { f: 349, d: 0.4 }, { f: 440, d: 0.4 }, { f: 523, d: 0.4 }, { f: 659, d: 0.4 },
+            { f: 587, d: 0.4 }, { f: 493, d: 0.4 }, { f: 392, d: 0.4 }, { f: 523, d: 0.8 },
         ];
 
-        let nextTime = audioCtxRef.current.currentTime;
+        let nextTime = ctx.currentTime;
         const loop = () => {
             if (isMuted) { setTimeout(loop, 1000); return; }
             melody.forEach(n => {
                 playNote(n.f, nextTime, n.d * 2.5);
-                playNote(n.f / 2, nextTime, n.d * 2.5, 0.02, 'square'); // Bass
+                playNote(n.f / 2, nextTime, n.d * 2.5, 0.02, 'square');
                 nextTime += n.d;
             });
-            setTimeout(loop, (nextTime - audioCtxRef.current.currentTime) * 1000 - 50);
+            setTimeout(loop, (nextTime - ctx.currentTime) * 1000 - 50);
         };
         loop();
     }, [isMuted]);
@@ -100,7 +89,7 @@ const App = () => {
         }
     }, [isMuted]);
 
-    // --- 初期化 ---
+    // --- Core Initialization ---
     useEffect(() => {
         const newWorld = [];
         for (let y = 0; y < WORLD_HEIGHT; y++) {
@@ -119,14 +108,14 @@ const App = () => {
         enemiesRef.current = [{ type: 'KING_SLIME', x: 2000, y: 400, vx: 0, vy: 0, w: 100, h: 80, hp: 1000, maxHp: 1000, lastJump: 0 }];
 
         const handleResize = () => {
-            const canvas = canvasRef.current;
-            if (canvas) {
-                canvas.width = window.innerWidth;
-                canvas.height = window.innerHeight;
+            if (canvasRef.current) {
+                canvasRef.current.width = window.innerWidth;
+                canvasRef.current.height = window.innerHeight;
             }
             setIsMobile(window.innerWidth < 1024);
         };
-        window.addEventListener('resize', handleResize); handleResize();
+        window.addEventListener('resize', handleResize);
+        handleResize();
 
         const down = (e) => {
             if(e.code === 'ArrowLeft' || e.code === 'KeyA') keysRef.current.left = true;
@@ -141,18 +130,26 @@ const App = () => {
             if(e.code === 'ArrowDown' || e.code === 'KeyS') keysRef.current.down = false;
         };
         window.addEventListener('keydown', down); window.addEventListener('keyup', up);
-        window.addEventListener('pointerdown', handleFirstInteraction);
 
         let fId;
         const loop = () => { update(); draw(); fId = requestAnimationFrame(loop); };
         fId = requestAnimationFrame(loop);
-        return () => { window.removeEventListener('resize', handleResize); window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); cancelAnimationFrame(fId); };
+
+        setGameReady(true);
+
+        return () => {
+            window.removeEventListener('resize', handleResize);
+            window.removeEventListener('keydown', down);
+            window.removeEventListener('keyup', up);
+            cancelAnimationFrame(fId);
+        };
     }, []);
 
     const update = () => {
         const p = playerRef.current; const keys = keysRef.current;
         if (screenShakeRef.current > 0) screenShakeRef.current -= 0.5;
 
+        // --- 移動 ---
         if (keys.left) { p.vx = -MOVE_SPEED; p.facing = -1; }
         else if (keys.right) { p.vx = MOVE_SPEED; p.facing = 1; }
         else { p.vx *= FRICTION; }
@@ -254,7 +251,7 @@ const App = () => {
 
     const handleAction = (e) => {
         if (e.cancelable) e.preventDefault();
-        playTerrariaTheme();
+        playTerrariaTheme(); // Play on first interaction
         const rect = canvasRef.current.getBoundingClientRect();
         let cX, cY; if (e.touches) { cX = e.touches[0].clientX; cY = e.touches[0].clientY; } else { cX = e.clientX; cY = e.clientY; }
         const mX = cX - rect.left + cameraRef.current.x, mY = cY - rect.top + cameraRef.current.y;
@@ -287,13 +284,13 @@ const App = () => {
             const angle = Math.atan2(dy, dx);
             const x = Math.cos(angle) * dist;
             const y = Math.sin(angle) * dist;
-            stickRef.current.style.transform = `translate(${x}px, ${y}px)`;
+            if (stickRef.current) stickRef.current.style.transform = `translate(${x}px, ${y}px)`;
             keysRef.current.left = dx < -20;
             keysRef.current.right = dx > 20;
             keysRef.current.jump = dy < -20;
             keysRef.current.down = dy > 30;
         };
-        const resetJoystick = () => { setActive(false); stickRef.current.style.transform = `translate(0, 0)`; keysRef.current.left = false; keysRef.current.right = false; keysRef.current.jump = false; keysRef.current.down = false; };
+        const resetJoystick = () => { setActive(false); if (stickRef.current) stickRef.current.style.transform = `translate(0, 0)`; keysRef.current.left = false; keysRef.current.right = false; keysRef.current.jump = false; keysRef.current.down = false; };
         return (
             <div ref={baseRef} onTouchStart={(e) => { e.preventDefault(); setActive(true); handleTouch(e); playTerrariaTheme(); }} onTouchMove={(e) => { e.preventDefault(); handleTouch(e); }} onTouchEnd={resetJoystick} style={{ position: 'fixed', bottom: '50px', left: '50px', width: '150px', height: '150px', background: 'rgba(255,255,255,0.1)', borderRadius: '50%', border: '4px solid rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, pointerEvents: 'auto', touchAction: 'none' }}>
                 <div ref={stickRef} style={{ width: '70px', height: '70px', background: active ? 'rgba(0, 242, 255, 0.6)' : 'rgba(255,255,255,0.4)', borderRadius: '50%', border: '2px solid #fff' }} />
@@ -303,9 +300,13 @@ const App = () => {
 
     return (
         <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', position: 'relative', touchAction: 'none', background: '#000', userSelect: 'none', WebkitUserSelect: 'none' }}>
-            <canvas ref={canvasRef} onMouseDown={handleAction} onTouchStart={handleAction} style={{ display: 'block' }} />
+            {/* Start Overlay */}
+            {!gameReady && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '2em', background: '#000', zIndex: 2000 }}>LOADING WORLD...</div>}
+            
+            <canvas ref={canvasRef} onMouseDown={handleAction} onTouchStart={handleAction} style={{ display: 'block', width: '100%', height: '100%' }} />
+            
             <div style={{ position: 'fixed', top: '20px', right: '20px', textAlign: 'right', zIndex: 100 }}>
-                <div style={{ color: '#fff', fontSize: '1.2em', fontWeight: 'bold', fontFamily: 'Orbitron' }}>NEURAL TERRARIA v23</div>
+                <div style={{ color: '#fff', fontSize: '1.2em', fontWeight: 'bold', fontFamily: 'Orbitron' }}>NEURAL TERRARIA v24</div>
                 <div style={{ width: '200px', height: '15px', background: '#222', border: '2px solid #fff', borderRadius: '8px', margin: '8px 0', overflow: 'hidden' }}>
                     <div style={{ width: `${stats.hp}%`, height: '100%', background: '#ff1744' }} />
                 </div>
