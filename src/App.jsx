@@ -31,6 +31,9 @@ const App = () => {
     const [selectedSlot, setSelectedSlot] = useState(0);
     const [isMobile, setIsMobile] = useState(false);
     const [spawnBoss, setSpawnBoss] = useState(false);
+    const [isMuted, setIsMuted] = useState(false);
+
+    const audioRef = useRef(null);
 
     const inventory = [
         { type: TILE_TYPES.DIRT, color: TILE_COLORS[TILE_TYPES.DIRT] },
@@ -41,13 +44,25 @@ const App = () => {
 
     // Initialization
     useEffect(() => {
+        // Terraria-like background music
+        audioRef.current = new Audio('https://www.chosic.com/wp-content/uploads/2021/07/The-Adventure-Begins.mp3');
+        audioRef.current.loop = true;
+        audioRef.current.volume = 0.3;
+        const playAudio = () => {
+            audioRef.current.play().catch(() => {});
+            window.removeEventListener('mousedown', playAudio);
+            window.removeEventListener('touchstart', playAudio);
+        };
+        window.addEventListener('mousedown', playAudio);
+        window.addEventListener('touchstart', playAudio);
+
         // Generate World
         const newWorld = [];
         for (let y = 0; y < WORLD_HEIGHT; y++) {
             const row = [];
             for (let x = 0; x < WORLD_WIDTH; x++) {
                 const surfaceY = 25 + Math.sin(x * 0.1) * 3; // Lower surface
-                if (y > surfaceY + 5) row.push(TILE_TYPES.STONE);
+                if (y > surfaceY + 15) row.push(TILE_TYPES.STONE);
                 else if (y > surfaceY) row.push(TILE_TYPES.DIRT);
                 else if (y > surfaceY - 1) row.push(TILE_TYPES.GRASS);
                 else row.push(TILE_TYPES.AIR);
@@ -59,7 +74,7 @@ const App = () => {
         // Initial Enemy Spawn
         enemiesRef.current = [
             { type: 'KING_SLIME', x: 800, y: 100, vx: 0, vy: 0, w: 120, h: 90, hp: 500, maxHp: 500, lastJump: 0, lastHit: 0 },
-            { type: 'MOON_LORD', x: 2000, y: 100, vx: 0, vy: 0, w: 300, h: 400, hp: 5000, maxHp: 5000, lastAttack: 0, lastHit: 0 },
+            { type: 'MOON_LORD', x: 1200, y: -200, vx: 0, vy: 0, w: 400, h: 600, hp: 10000, maxHp: 10000, lastAttack: 0, lastHit: 0 },
             { type: 'ZOMBIE', x: 400, y: 100, vx: 0, vy: 0, w: 20, h: 36, hp: 50, maxHp: 50, lastHit: 0 },
             { type: 'SLIME', x: 600, y: 100, vx: 0, vy: 0, w: 24, h: 18, hp: 20, maxHp: 20, lastJump: 0, lastHit: 0 }
         ];
@@ -219,9 +234,14 @@ const App = () => {
             }
 
             if (en.type === 'MOON_LORD') {
-                // Floating logic
-                en.y += Math.sin(Date.now() * 0.001) * 0.5;
-                en.x += (p.x - en.x) * 0.01;
+                // Floating logic - stay above player
+                const targetY = p.y - 450;
+                const targetX = p.x - en.w / 2;
+                en.y += (targetY - en.y) * 0.02;
+                en.x += (targetX - en.x) * 0.02;
+                
+                // Swaying
+                en.y += Math.sin(Date.now() * 0.001) * 1.0;
             }
             return true;
         });
@@ -408,24 +428,67 @@ const App = () => {
                 ctx.save();
                 ctx.translate(en.x + en.w / 2, en.y + en.h / 2);
                 
-                // Body
-                ctx.fillStyle = isHit ? '#fff' : 'rgba(100, 150, 150, 0.6)';
-                ctx.shadowBlur = 30;
-                ctx.shadowColor = '#00f2ff';
+                // Outer Glow
+                ctx.shadowBlur = 40;
+                ctx.shadowColor = 'rgba(0, 242, 255, 0.5)';
+
+                // Body (Core Torso)
+                ctx.fillStyle = isHit ? '#fff' : 'rgba(80, 120, 130, 0.8)';
                 ctx.beginPath();
-                ctx.moveTo(-80, 150);
-                ctx.lineTo(0, -180);
-                ctx.lineTo(80, 150);
-                ctx.closePath();
+                ctx.moveTo(-100, 200);
+                ctx.quadraticCurveTo(-150, 0, -50, -250);
+                ctx.quadraticCurveTo(0, -300, 50, -250);
+                ctx.quadraticCurveTo(150, 0, 100, 200);
                 ctx.fill();
 
-                // Eyes (Top)
+                // Ribs/Skeleton Detail
+                ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+                ctx.lineWidth = 8;
+                for(let i=0; i<5; i++) {
+                    ctx.beginPath();
+                    ctx.moveTo(-60, -100 + i*40);
+                    ctx.lineTo(60, -100 + i*40);
+                    ctx.stroke();
+                }
+
+                // Head/Face
+                ctx.fillStyle = isHit ? '#fff' : 'rgba(60, 90, 100, 0.9)';
+                ctx.beginPath();
+                ctx.arc(0, -240, 60, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Tentacles (Chin)
+                ctx.strokeStyle = ctx.fillStyle;
+                ctx.lineWidth = 10;
+                for(let i=0; i<4; i++) {
+                    ctx.beginPath();
+                    ctx.moveTo(-30 + i*20, -200);
+                    ctx.lineTo(-40 + i*25, -140 + Math.sin(Date.now()*0.002 + i)*10);
+                    ctx.stroke();
+                }
+
+                // Eye (Forehead)
+                const eyeOpen = Math.sin(Date.now() * 0.001) > -0.5;
+                if(eyeOpen) {
+                    ctx.fillStyle = '#fff';
+                    ctx.beginPath(); ctx.ellipse(0, -260, 25, 15, 0, 0, Math.PI*2); ctx.fill();
+                    ctx.fillStyle = '#ff0055';
+                    ctx.shadowBlur = 20; ctx.shadowColor = '#ff0055';
+                    ctx.beginPath(); ctx.arc(0, -260, 10, 0, Math.PI * 2); ctx.fill();
+                }
+
+                // Hands/Eyes
+                const handY = Math.sin(Date.now() * 0.0015) * 20;
+                // Left Hand
+                ctx.fillStyle = 'rgba(80, 120, 130, 0.7)';
+                ctx.beginPath(); ctx.arc(-180, 50 + handY, 40, 0, Math.PI*2); ctx.fill();
                 ctx.fillStyle = '#ff0055';
-                ctx.shadowColor = '#ff0055';
-                ctx.beginPath(); ctx.arc(0, -120, 15, 0, Math.PI * 2); ctx.fill();
-                // Hands
-                ctx.beginPath(); ctx.arc(-120, 20, 25, 0, Math.PI * 2); ctx.fill();
-                ctx.beginPath(); ctx.arc(120, 20, 25, 0, Math.PI * 2); ctx.fill();
+                ctx.beginPath(); ctx.arc(-180, 50 + handY, 15, 0, Math.PI*2); ctx.fill();
+                // Right Hand
+                ctx.fillStyle = 'rgba(80, 120, 130, 0.7)';
+                ctx.beginPath(); ctx.arc(180, 50 - handY, 40, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = '#ff0055';
+                ctx.beginPath(); ctx.arc(180, 50 - handY, 15, 0, Math.PI*2); ctx.fill();
 
                 ctx.restore();
             }
@@ -533,7 +596,7 @@ const App = () => {
             </div>
 
             <div style={{ position: 'fixed', top: '20px', right: '20px', color: '#fff', fontSize: '1.2em', fontWeight: 'bold', textShadow: '2px 2px rgba(0,0,0,0.5)', fontFamily: 'Orbitron' }}>
-                NEURAL TERRARIA v4
+                NEURAL TERRARIA v5
             </div>
 
             {isMobile && (
