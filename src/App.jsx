@@ -20,7 +20,7 @@ const App = () => {
     const canvasRef = useRef(null);
     const worldRef = useRef([]);
     const playerRef = useRef({ x: 4500, y: 500, vx: 0, vy: 0, w: 20, h: 36, onGround: false, facing: 1, hp: 100, mana: 100 });
-    const keysRef = useRef({ left: false, right: false, jump: false });
+    const keysRef = useRef({ left: false, right: false, jump: false, down: false });
     const cameraRef = useRef({ x: 0, y: 0 });
     const projectilesRef = useRef([]);
     const enemiesRef = useRef([]);
@@ -40,21 +40,19 @@ const App = () => {
         { type: 'WINGS', label: '🦋' }
     ];
 
-    // --- BGM再生 ---
     const startBGM = useCallback(() => {
         if (audioRef.current) return;
         const audio = new Audio('https://archive.org/download/terraria-soundtrack/Terraria%20Soundtrack/01%20Overworld%20Day.mp3');
         audio.loop = true;
         audio.volume = 0.2;
         audioRef.current = audio;
-        audio.play().catch(() => console.log("User interaction required for audio"));
+        audio.play().catch(() => {});
     }, []);
 
     useEffect(() => {
         if (audioRef.current) audioRef.current.muted = isMuted;
     }, [isMuted]);
 
-    // --- 初期化 ---
     useEffect(() => {
         const newWorld = [];
         for (let y = 0; y < WORLD_HEIGHT; y++) {
@@ -73,10 +71,9 @@ const App = () => {
         enemiesRef.current = [{ type: 'KING_SLIME', x: 2000, y: 400, vx: 0, vy: 0, w: 100, h: 80, hp: 1000, maxHp: 1000, lastJump: 0 }];
 
         const handleResize = () => {
-            const canvas = canvasRef.current;
-            if (canvas) {
-                canvas.width = window.innerWidth;
-                canvas.height = window.innerHeight;
+            if (canvasRef.current) {
+                canvasRef.current.width = window.innerWidth;
+                canvasRef.current.height = window.innerHeight;
             }
             setIsMobile(window.innerWidth < 1024);
         };
@@ -86,25 +83,20 @@ const App = () => {
             if(e.code === 'ArrowLeft' || e.code === 'KeyA') keysRef.current.left = true;
             if(e.code === 'ArrowRight' || e.code === 'KeyD') keysRef.current.right = true;
             if(e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') keysRef.current.jump = true;
+            if(e.code === 'ArrowDown' || e.code === 'KeyS') keysRef.current.down = true;
         };
         const up = (e) => {
             if(e.code === 'ArrowLeft' || e.code === 'KeyA') keysRef.current.left = false;
             if(e.code === 'ArrowRight' || e.code === 'KeyD') keysRef.current.right = false;
             if(e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') keysRef.current.jump = false;
+            if(e.code === 'ArrowDown' || e.code === 'KeyS') keysRef.current.down = false;
         };
         window.addEventListener('keydown', down); window.addEventListener('keyup', up);
 
-        let frameId;
-        const loop = () => { update(); draw(); frameId = requestAnimationFrame(loop); };
-        frameId = requestAnimationFrame(loop);
-
-        return () => {
-            window.removeEventListener('resize', handleResize);
-            window.removeEventListener('keydown', down);
-            window.removeEventListener('keyup', up);
-            cancelAnimationFrame(frameId);
-            if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
-        };
+        let fId;
+        const loop = () => { update(); draw(); fId = requestAnimationFrame(loop); };
+        fId = requestAnimationFrame(loop);
+        return () => { window.removeEventListener('resize', handleResize); window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); cancelAnimationFrame(fId); };
     }, []);
 
     const update = () => {
@@ -114,7 +106,16 @@ const App = () => {
         if (keys.left) { p.vx = -MOVE_SPEED; p.facing = -1; }
         else if (keys.right) { p.vx = MOVE_SPEED; p.facing = 1; }
         else { p.vx *= FRICTION; }
-        if (Math.abs(p.vx) < 0.1) p.vx = 0;
+        
+        // --- 穴掘り (Down on Joystick/Key) ---
+        if (keys.down) {
+            const tx = Math.floor((p.x + p.w / 2) / TILE_SIZE);
+            const ty = Math.floor((p.y + p.h + 5) / TILE_SIZE);
+            if (worldRef.current[ty] && worldRef.current[ty][tx] !== TILE_TYPES.AIR && worldRef.current[ty][tx] !== TILE_TYPES.LAVA) {
+                worldRef.current[ty][tx] = TILE_TYPES.AIR;
+                screenShakeRef.current = 2;
+            }
+        }
 
         const canFly = inventory[selectedSlot]?.type === 'WINGS' && keys.jump;
         p.vy += canFly ? 0.1 : GRAVITY;
@@ -125,7 +126,6 @@ const App = () => {
 
         p.x += p.vx; resolveCollision(p, 'x');
         p.y += p.vy; p.onGround = false; resolveCollision(p, 'y');
-
         cameraRef.current.x += (p.x - window.innerWidth/2 - cameraRef.current.x) * 0.1;
         cameraRef.current.y += (p.y - window.innerHeight/2 - cameraRef.current.y) * 0.1;
 
@@ -223,11 +223,70 @@ const App = () => {
         }
     };
 
+    // --- バーチャルジョイスティック ---
+    const Joystick = () => {
+        const baseRef = useRef(null);
+        const stickRef = useRef(null);
+        const [active, setActive] = useState(false);
+
+        const handleTouch = (e) => {
+            const touch = e.touches[0];
+            const base = baseRef.current.getBoundingClientRect();
+            const centerX = base.left + base.width / 2;
+            const centerY = base.top + base.height / 2;
+            const dx = touch.clientX - centerX;
+            const dy = touch.clientY - centerY;
+            const dist = Math.min(60, Math.sqrt(dx * dx + dy * dy));
+            const angle = Math.atan2(dy, dx);
+            
+            const x = Math.cos(angle) * dist;
+            const y = Math.sin(angle) * dist;
+            stickRef.current.style.transform = `translate(${x}px, ${y}px)`;
+
+            keysRef.current.left = dx < -20;
+            keysRef.current.right = dx > 20;
+            keysRef.current.jump = dy < -20;
+            keysRef.current.down = dy > 30;
+        };
+
+        const resetJoystick = () => {
+            setActive(false);
+            stickRef.current.style.transform = `translate(0, 0)`;
+            keysRef.current.left = false;
+            keysRef.current.right = false;
+            keysRef.current.jump = false;
+            keysRef.current.down = false;
+        };
+
+        return (
+            <div 
+                ref={baseRef}
+                onTouchStart={(e) => { e.preventDefault(); setActive(true); handleTouch(e); }}
+                onTouchMove={(e) => { e.preventDefault(); handleTouch(e); }}
+                onTouchEnd={resetJoystick}
+                style={{
+                    position: 'fixed', bottom: '50px', left: '50px', width: '150px', height: '150px',
+                    background: 'rgba(255,255,255,0.1)', borderRadius: '50%', border: '4px solid rgba(255,255,255,0.3)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, pointerEvents: 'auto'
+                }}
+            >
+                <div 
+                    ref={stickRef}
+                    style={{
+                        width: '70px', height: '70px', background: active ? 'rgba(0, 242, 255, 0.6)' : 'rgba(255,255,255,0.4)',
+                        borderRadius: '50%', border: '2px solid #fff', transition: 'background 0.2s'
+                    }}
+                />
+            </div>
+        );
+    };
+
     return (
         <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', position: 'relative', touchAction: 'none', background: '#000', userSelect: 'none', WebkitUserSelect: 'none' }}>
             <canvas ref={canvasRef} onMouseDown={handleAction} onTouchStart={handleAction} style={{ display: 'block' }} />
+            
             <div style={{ position: 'fixed', top: '20px', right: '20px', textAlign: 'right', zIndex: 100 }}>
-                <div style={{ color: '#fff', fontSize: '1.2em', fontWeight: 'bold', fontFamily: 'Orbitron' }}>NEURAL TERRARIA v20</div>
+                <div style={{ color: '#fff', fontSize: '1.2em', fontWeight: 'bold', fontFamily: 'Orbitron' }}>NEURAL TERRARIA v21</div>
                 <div style={{ width: '200px', height: '15px', background: '#222', border: '2px solid #fff', borderRadius: '8px', margin: '8px 0', overflow: 'hidden' }}>
                     <div style={{ width: `${stats.hp}%`, height: '100%', background: '#ff1744' }} />
                 </div>
@@ -235,25 +294,17 @@ const App = () => {
                     <div style={{ width: `${stats.mana}%`, height: '100%', background: '#2979ff' }} />
                 </div>
             </div>
+
             <div style={{ position: 'fixed', top: '20px', left: '20px', display: 'flex', gap: '8px', zIndex: 100 }}>
                 {inventory.map((item, idx) => (
                     <div key={idx} onPointerDown={(e) => { e.stopPropagation(); setSelectedSlot(idx); }} style={{ width: '50px', height: '50px', background: selectedSlot === idx ? '#fff' : 'rgba(255,255,255,0.3)', border: selectedSlot === idx ? '3px solid #ff4081' : '2px solid #fff', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px', cursor: 'pointer' }}>{item.label}</div>
                 ))}
                 <div onPointerDown={(e) => { e.stopPropagation(); setIsMuted(!isMuted); }} style={{ width: '50px', height: '50px', background: isMuted ? '#ff1744' : '#00e676', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '24px', border: '2px solid #fff' }}>{isMuted ? '🔇' : '🔊'}</div>
             </div>
-            {isMobile && (
-                <div style={{ position: 'fixed', bottom: '30px', left: '30px', right: '30px', display: 'flex', justifyContent: 'space-between', zIndex: 100, pointerEvents: 'none' }}>
-                    <div style={{ display: 'flex', gap: '15px', pointerEvents: 'auto' }}>
-                        <button onPointerDown={(e) => { e.preventDefault(); keysRef.current.left = true; }} onPointerUp={(e) => { e.preventDefault(); keysRef.current.left = false; }} onPointerLeave={() => keysRef.current.left = false} style={btnStyle}>←</button>
-                        <button onPointerDown={(e) => { e.preventDefault(); keysRef.current.right = true; }} onPointerUp={(e) => { e.preventDefault(); keysRef.current.right = false; }} onPointerLeave={() => keysRef.current.right = false} style={btnStyle}>→</button>
-                    </div>
-                    <button onPointerDown={(e) => { e.preventDefault(); keysRef.current.jump = true; }} onPointerUp={(e) => { e.preventDefault(); keysRef.current.jump = false; }} onPointerLeave={() => keysRef.current.jump = false} style={{ ...btnStyle, borderRadius: '50%', width: '90px', height: '90px' }}>UP</button>
-                </div>
-            )}
+
+            {isMobile && <Joystick />}
         </div>
     );
 };
-
-const btnStyle = { width: '70px', height: '70px', background: 'rgba(255,255,255,0.2)', border: '2px solid #fff', borderRadius: '15px', color: '#fff', fontSize: '2em', display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'auto', WebkitTapHighlightColor: 'transparent', touchAction: 'none' };
 
 export default App;
