@@ -1,264 +1,276 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
-const WORLD_WIDTH = 50;
-const WORLD_HEIGHT = 30;
+// Constants
+const WORLD_WIDTH = 100;
+const WORLD_HEIGHT = 50;
 const TILE_SIZE = 32;
-const GRAVITY = 0.5;
-const JUMP_FORCE = -10;
-const MOVE_SPEED = 4;
+const GRAVITY = 0.45;
+const JUMP_FORCE = -9.5;
+const MOVE_SPEED = 4.5;
+const FRICTION = 0.85;
 
-const TILE_TYPES = {
-    AIR: 0,
-    DIRT: 1,
-    GRASS: 2,
-    STONE: 3,
-    WOOD: 4,
-};
-
+const TILE_TYPES = { AIR: 0, DIRT: 1, GRASS: 2, STONE: 3, WOOD: 4, LEAVES: 5 };
 const TILE_COLORS = {
-    [TILE_TYPES.AIR]: 'transparent',
+    [TILE_TYPES.AIR]: null,
     [TILE_TYPES.DIRT]: '#8B4513',
     [TILE_TYPES.GRASS]: '#4CAF50',
     [TILE_TYPES.STONE]: '#757575',
     [TILE_TYPES.WOOD]: '#5D4037',
+    [TILE_TYPES.LEAVES]: '#2E7D32',
 };
 
 const App = () => {
-    const [world, setWorld] = useState([]);
-    const [player, setPlayer] = useState({ x: 100, y: 100, vx: 0, vy: 0, width: 24, height: 40 });
-    const [camera, setCamera] = useState({ x: 0, y: 0 });
-    const [inventory, setInventory] = useState([
-        { type: TILE_TYPES.DIRT, count: 99 },
-        { type: TILE_TYPES.WOOD, count: 99 },
-    ]);
+    const canvasRef = useRef(null);
+    const worldRef = useRef([]);
+    const playerRef = useRef({ x: 200, y: 100, vx: 0, vy: 0, w: 20, h: 36, onGround: false });
+    const keysRef = useRef({});
+    const cameraRef = useRef({ x: 0, y: 0 });
+    
     const [selectedSlot, setSelectedSlot] = useState(0);
     const [isMobile, setIsMobile] = useState(false);
+    const inventory = [
+        { type: TILE_TYPES.DIRT, color: TILE_COLORS[TILE_TYPES.DIRT] },
+        { type: TILE_TYPES.WOOD, color: TILE_COLORS[TILE_TYPES.WOOD] },
+        { type: TILE_TYPES.STONE, color: TILE_COLORS[TILE_TYPES.STONE] },
+    ];
 
-    const requestRef = useRef();
-    const keys = useRef({});
-    const gameContainerRef = useRef();
-
-    // 初期ワールド生成
+    // Initialization
     useEffect(() => {
+        // Generate World
         const newWorld = [];
         for (let y = 0; y < WORLD_HEIGHT; y++) {
             const row = [];
             for (let x = 0; x < WORLD_WIDTH; x++) {
-                if (y > 20) row.push(TILE_TYPES.STONE);
-                else if (y > 15) row.push(TILE_TYPES.DIRT);
-                else if (y === 15) row.push(TILE_TYPES.GRASS);
+                const surfaceY = 15 + Math.sin(x * 0.1) * 3; // Rolling hills
+                if (y > surfaceY + 5) row.push(TILE_TYPES.STONE);
+                else if (y > surfaceY) row.push(TILE_TYPES.DIRT);
+                else if (y > surfaceY - 1) row.push(TILE_TYPES.GRASS);
                 else row.push(TILE_TYPES.AIR);
             }
             newWorld.push(row);
         }
-        setWorld(newWorld);
-        
-        const handleResize = () => setIsMobile(window.innerWidth < 1024);
+        worldRef.current = newWorld;
+
+        const handleResize = () => {
+            if (canvasRef.current) {
+                canvasRef.current.width = window.innerWidth;
+                canvasRef.current.height = window.innerHeight;
+            }
+            setIsMobile(window.innerWidth < 1024);
+        };
         window.addEventListener('resize', handleResize);
         handleResize();
-        return () => window.removeEventListener('resize', handleResize);
-    }, []);
 
-    const handleKeyDown = (e) => { keys.current[e.code] = true; };
-    const handleKeyUp = (e) => { keys.current[e.code] = false; };
+        // Keyboard setup
+        const down = (e) => { keysRef.current[e.code] = true; };
+        const up = (e) => { keysRef.current[e.code] = false; };
+        window.addEventListener('keydown', down);
+        window.addEventListener('keyup', up);
 
-    useEffect(() => {
-        window.addEventListener('keydown', handleKeyDown);
-        window.addEventListener('keyup', handleKeyUp);
+        // Main Game Loop
+        let frameId;
+        const loop = () => {
+            update();
+            draw();
+            frameId = requestAnimationFrame(loop);
+        };
+        frameId = requestAnimationFrame(loop);
+
         return () => {
-            window.removeEventListener('keydown', handleKeyDown);
-            window.removeEventListener('keyup', handleKeyUp);
+            window.removeEventListener('resize', handleResize);
+            window.removeEventListener('keydown', down);
+            window.removeEventListener('keyup', up);
+            cancelAnimationFrame(frameId);
         };
     }, []);
 
-    const update = useCallback(() => {
-        setPlayer(p => {
-            let nextVx = 0;
-            if (keys.current['KeyA'] || keys.current['ArrowLeft']) nextVx = -MOVE_SPEED;
-            if (keys.current['KeyD'] || keys.current['ArrowRight']) nextVx = MOVE_SPEED;
+    const update = () => {
+        const p = playerRef.current;
+        const keys = keysRef.current;
 
-            let nextVy = p.vy + GRAVITY;
-            if ((keys.current['Space'] || keys.current['ArrowUp'] || keys.current['KeyW']) && p.onGround) {
-                nextVy = JUMP_FORCE;
+        // Horizontal Movement
+        if (keys['ArrowLeft'] || keys['KeyA']) p.vx = -MOVE_SPEED;
+        else if (keys['ArrowRight'] || keys['KeyD']) p.vx = MOVE_SPEED;
+        else p.vx *= FRICTION;
+
+        // Vertical Movement
+        p.vy += GRAVITY;
+        if ((keys['ArrowUp'] || keys['KeyW'] || keys['Space']) && p.onGround) {
+            p.vy = JUMP_FORCE;
+            p.onGround = false;
+        }
+
+        // Collision Detection (AABB)
+        // Move X
+        p.x += p.vx;
+        resolveCollisions(p, 'x');
+        // Move Y
+        p.y += p.vy;
+        p.onGround = false;
+        resolveCollisions(p, 'y');
+
+        // Camera follow
+        cameraRef.current.x += (p.x - window.innerWidth / 2 - cameraRef.current.x) * 0.1;
+        cameraRef.current.y += (p.y - window.innerHeight / 2 - cameraRef.current.y) * 0.1;
+
+        // World Bounds
+        if (p.x < 0) p.x = 0;
+        if (p.x > WORLD_WIDTH * TILE_SIZE - p.w) p.x = WORLD_WIDTH * TILE_SIZE - p.w;
+    };
+
+    const resolveCollisions = (p, axis) => {
+        const x1 = Math.floor(p.x / TILE_SIZE);
+        const x2 = Math.floor((p.x + p.w) / TILE_SIZE);
+        const y1 = Math.floor(p.y / TILE_SIZE);
+        const y2 = Math.floor((p.y + p.h) / TILE_SIZE);
+
+        for (let y = y1; y <= y2; y++) {
+            for (let x = x1; x <= x2; x++) {
+                if (x < 0 || x >= WORLD_WIDTH || y < 0 || y >= WORLD_HEIGHT) continue;
+                if (worldRef.current[y][x] !== TILE_TYPES.AIR) {
+                    if (axis === 'x') {
+                        if (p.vx > 0) p.x = x * TILE_SIZE - p.w;
+                        else if (p.vx < 0) p.x = (x + 1) * TILE_SIZE;
+                        p.vx = 0;
+                    } else {
+                        if (p.vy > 0) {
+                            p.y = y * TILE_SIZE - p.h;
+                            p.onGround = true;
+                        } else if (p.vy < 0) {
+                            p.y = (y + 1) * TILE_SIZE;
+                        }
+                        p.vy = 0;
+                    }
+                }
             }
+        }
+    };
 
-            let nextX = p.x + nextVx;
-            let nextY = p.y + nextVy;
-            let onGround = false;
+    const draw = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const cam = cameraRef.current;
 
-            // 衝突判定（簡易）
-            const checkCollision = (tx, ty) => {
-                const wx = Math.floor(tx / TILE_SIZE);
-                const wy = Math.floor(ty / TILE_SIZE);
-                if (wx < 0 || wx >= WORLD_WIDTH || wy < 0 || wy >= WORLD_HEIGHT) return true;
-                return world[wy][wx] !== TILE_TYPES.AIR;
-            };
+        // Clear
+        ctx.fillStyle = '#87CEEB'; // Sky
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Y方向衝突
-            if (nextVy > 0) { // 落下中
-                if (checkCollision(p.x, nextY + p.height) || checkCollision(p.x + p.width, nextY + p.height)) {
-                    nextY = Math.floor((nextY + p.height) / TILE_SIZE) * TILE_SIZE - p.height;
-                    nextVy = 0;
-                    onGround = true;
-                }
-            } else if (nextVy < 0) { // ジャンプ中
-                if (checkCollision(p.x, nextY) || checkCollision(p.x + p.width, nextY)) {
-                    nextY = Math.ceil(nextY / TILE_SIZE) * TILE_SIZE;
-                    nextVy = 0;
-                }
-            }
+        ctx.save();
+        ctx.translate(-Math.floor(cam.x), -Math.floor(cam.y));
 
-            // X方向衝突
-            if (nextVx > 0) {
-                if (checkCollision(nextX + p.width, p.y) || checkCollision(nextX + p.width, p.y + p.height - 1)) {
-                    nextX = Math.floor((nextX + p.width) / TILE_SIZE) * TILE_SIZE - p.width;
-                }
-            } else if (nextVx < 0) {
-                if (checkCollision(nextX, p.y) || checkCollision(nextX, p.y + p.height - 1)) {
-                    nextX = Math.ceil(nextX / TILE_SIZE) * TILE_SIZE;
+        // Draw World
+        const startX = Math.max(0, Math.floor(cam.x / TILE_SIZE));
+        const endX = Math.min(WORLD_WIDTH, Math.ceil((cam.x + canvas.width) / TILE_SIZE));
+        const startY = Math.max(0, Math.floor(cam.y / TILE_SIZE));
+        const endY = Math.min(WORLD_HEIGHT, Math.ceil((cam.y + canvas.height) / TILE_SIZE));
+
+        for (let y = startY; y < endY; y++) {
+            for (let x = startX; x < endX; x++) {
+                const tile = worldRef.current[y][x];
+                if (tile !== TILE_TYPES.AIR) {
+                    ctx.fillStyle = TILE_COLORS[tile];
+                    ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                    // Outline for pop look
+                    ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+                    ctx.strokeRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
                 }
             }
+        }
 
-            return { ...p, x: nextX, y: nextY, vx: nextVx, vy: nextVy, onGround };
-        });
+        // Draw Player
+        const p = playerRef.current;
+        ctx.fillStyle = '#FF5722';
+        ctx.fillRect(p.x, p.y, p.w, p.h);
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(p.x, p.y, p.w, p.h);
+        
+        // Eyes
+        ctx.fillStyle = '#333';
+        const eyeOffset = p.vx >= 0 ? 12 : 4;
+        ctx.fillRect(p.x + eyeOffset, p.y + 8, 4, 4);
 
-        requestRef.current = requestAnimationFrame(update);
-    }, [world]);
+        ctx.restore();
+    };
 
-    useEffect(() => {
-        requestRef.current = requestAnimationFrame(update);
-        return () => cancelAnimationFrame(requestRef.current);
-    }, [update]);
-
-    // カメラ追従
-    useEffect(() => {
-        setCamera({
-            x: player.x - window.innerWidth / 2,
-            y: player.y - window.innerHeight / 2
-        });
-    }, [player.x, player.y]);
-
-    const handleCanvasClick = (e) => {
-        const rect = gameContainerRef.current.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left + camera.x;
-        const mouseY = e.clientY - rect.top + camera.y;
+    const handleAction = (e) => {
+        const rect = canvasRef.current.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        
+        const mouseX = clientX - rect.left + cameraRef.current.x;
+        const mouseY = clientY - rect.top + cameraRef.current.y;
         const tx = Math.floor(mouseX / TILE_SIZE);
         const ty = Math.floor(mouseY / TILE_SIZE);
 
         if (tx >= 0 && tx < WORLD_WIDTH && ty >= 0 && ty < WORLD_HEIGHT) {
-            setWorld(prev => {
-                const newWorld = prev.map(row => [...row]);
-                if (newWorld[ty][tx] === TILE_TYPES.AIR) {
-                    newWorld[ty][tx] = inventory[selectedSlot].type;
-                } else {
-                    newWorld[ty][tx] = TILE_TYPES.AIR;
-                }
-                return newWorld;
-            });
+            const world = worldRef.current;
+            if (world[ty][tx] === TILE_TYPES.AIR) {
+                // Place (if not overlapping player)
+                const p = playerRef.current;
+                const overlap = (tx * TILE_SIZE < p.x + p.w && (tx+1) * TILE_SIZE > p.x && 
+                                 ty * TILE_SIZE < p.y + p.h && (ty+1) * TILE_SIZE > p.y);
+                if (!overlap) world[ty][tx] = inventory[selectedSlot].type;
+            } else {
+                // Mine
+                world[ty][tx] = TILE_TYPES.AIR;
+            }
         }
     };
 
-    const MobileControls = () => (
-        <div style={{ position: 'fixed', bottom: '20px', left: 0, right: 0, display: 'flex', justifyContent: 'space-between', padding: '0 20px', zIndex: 100, pointerEvents: 'none' }}>
-            <div style={{ display: 'flex', gap: '10px', pointerEvents: 'auto' }}>
-                <button onTouchStart={() => keys.current['KeyA'] = true} onTouchEnd={() => keys.current['KeyA'] = false} className="ctrl-btn">←</button>
-                <button onTouchStart={() => keys.current['KeyD'] = true} onTouchEnd={() => keys.current['KeyD'] = false} className="ctrl-btn">→</button>
-            </div>
-            <div style={{ pointerEvents: 'auto' }}>
-                <button onTouchStart={() => keys.current['Space'] = true} onTouchEnd={() => keys.current['Space'] = false} className="ctrl-btn" style={{ width: '100px', height: '100px', borderRadius: '50%' }}>JUMP</button>
-            </div>
-        </div>
-    );
-
     return (
-        <div 
-            ref={gameContainerRef}
-            onClick={handleCanvasClick}
-            style={{ 
-                width: '100vw', 
-                height: '100vh', 
-                backgroundColor: '#87CEEB', 
-                overflow: 'hidden', 
-                position: 'relative',
-                touchAction: 'none'
-            }}
-        >
-            {/* World Rendering */}
-            <div style={{ 
-                transform: `translate(${-camera.x}px, ${-camera.y}px)`,
-                transition: 'transform 0.1s ease-out'
-            }}>
-                {world.map((row, y) => row.map((tile, x) => {
-                    if (tile === TILE_TYPES.AIR) return null;
-                    // カリング
-                    if (x * TILE_SIZE < camera.x - TILE_SIZE || x * TILE_SIZE > camera.x + window.innerWidth + TILE_SIZE) return null;
-                    return (
-                        <div key={`${x}-${y}`} style={{
-                            position: 'absolute',
-                            left: x * TILE_SIZE,
-                            top: y * TILE_SIZE,
-                            width: TILE_SIZE,
-                            height: TILE_SIZE,
-                            backgroundColor: TILE_COLORS[tile],
-                            border: '0.5px solid rgba(0,0,0,0.1)',
-                            borderRadius: '2px'
-                        }} />
-                    );
-                }))}
+        <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', position: 'relative', touchAction: 'none' }}>
+            <canvas 
+                ref={canvasRef} 
+                onMouseDown={handleAction}
+                style={{ display: 'block' }}
+            />
 
-                {/* Player */}
-                <div style={{
-                    position: 'absolute',
-                    left: player.x,
-                    top: player.y,
-                    width: player.width,
-                    height: player.height,
-                    backgroundColor: '#FF5722',
-                    borderRadius: '4px',
-                    boxShadow: '0 0 10px rgba(0,0,0,0.3)',
-                    border: '2px solid #fff'
-                }}>
-                    {/* Face */}
-                    <div style={{ position: 'absolute', top: '8px', right: '4px', width: '4px', height: '4px', backgroundColor: '#333' }} />
-                </div>
-            </div>
-
-            {/* UI */}
-            <div style={{ position: 'fixed', top: '20px', left: '20px', display: 'flex', gap: '10px', zIndex: 100 }}>
+            {/* UI Overlay */}
+            <div style={{ position: 'fixed', top: '20px', left: '20px', display: 'flex', gap: '12px', zIndex: 100 }}>
                 {inventory.map((item, idx) => (
                     <div 
                         key={idx}
-                        onClick={(e) => { e.stopPropagation(); setSelectedSlot(idx); }}
+                        onClick={() => setSelectedSlot(idx)}
                         style={{
-                            width: '50px', height: '50px', backgroundColor: 'rgba(255,255,255,0.8)',
-                            border: selectedSlot === idx ? '4px solid #ff4081' : '2px solid #333',
-                            borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            cursor: 'pointer'
+                            width: '50px', height: '50px', 
+                            background: selectedSlot === idx ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255,255,255,0.4)',
+                            border: selectedSlot === idx ? '4px solid #ff4081' : '2px solid rgba(0,0,0,0.2)',
+                            borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            cursor: 'pointer', transition: 'all 0.2s', backdropFilter: 'blur(5px)'
                         }}
                     >
-                        <div style={{ width: '30px', height: '30px', backgroundColor: TILE_COLORS[item.type] }} />
+                        <div style={{ width: '30px', height: '30px', backgroundColor: item.color, borderRadius: '4px' }} />
                     </div>
                 ))}
             </div>
 
-            <div style={{ position: 'fixed', top: '20px', right: '20px', color: '#fff', fontSize: '1.2em', fontWeight: 'bold', textShadow: '2px 2px #000' }}>
-                NEURAL TERRARIA
+            <div style={{ position: 'fixed', top: '20px', right: '20px', color: '#fff', fontSize: '1.2em', fontWeight: 'bold', textShadow: '2px 2px rgba(0,0,0,0.5)', fontFamily: 'Orbitron' }}>
+                NEURAL TERRARIA v2
             </div>
 
-            {isMobile && <MobileControls />}
+            {isMobile && (
+                <div style={{ position: 'fixed', bottom: '30px', left: 0, right: 0, display: 'flex', justifyContent: 'space-between', padding: '0 30px', zIndex: 100, pointerEvents: 'none' }}>
+                    <div style={{ display: 'flex', gap: '15px', pointerEvents: 'auto' }}>
+                        <button onTouchStart={() => keysRef.current['KeyA'] = true} onTouchEnd={() => keysRef.current['KeyA'] = false} className="ctrl-btn">←</button>
+                        <button onTouchStart={() => keysRef.current['KeyD'] = true} onTouchEnd={() => keysRef.current['KeyD'] = false} className="ctrl-btn">→</button>
+                    </div>
+                    <div style={{ pointerEvents: 'auto' }}>
+                        <button onTouchStart={() => keysRef.current['Space'] = true} onTouchEnd={() => keysRef.current['Space'] = false} className="ctrl-btn" style={{ width: '100px', height: '100px', borderRadius: '50%', background: 'rgba(255, 64, 129, 0.4)' }}>JUMP</button>
+                    </div>
+                </div>
+            )}
 
             <style>{`
                 .ctrl-btn {
-                    width: 70px; height: 70px; background: rgba(255,255,255,0.3);
-                    border: 2px solid #fff; border-radius: 12px; color: #fff;
-                    font-weight: bold; font-size: 1.2em;
+                    width: 80px; height: 80px; background: rgba(255,255,255,0.2);
+                    border: 2px solid #fff; border-radius: 20px; color: #fff;
+                    font-weight: bold; font-size: 2em;
                     display: flex; align-items: center; justify-content: center;
-                    backdrop-filter: blur(5px);
+                    backdrop-filter: blur(8px); -webkit-tap-highlight-color: transparent;
                 }
-                @keyframes float {
-                    0%, 100% { transform: translateY(0); }
-                    50% { transform: translateY(-10px); }
-                }
+                .ctrl-btn:active { background: rgba(255,255,255,0.5); transform: scale(0.95); }
             `}</style>
         </div>
     );
