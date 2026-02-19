@@ -40,6 +40,21 @@ const App = () => {
         { type: 'WINGS', label: '🦋' }
     ];
 
+    // --- フルスクリーン & BGM開始トリガー ---
+    const handleFirstInteraction = useCallback(() => {
+        // BGM開始
+        playTerrariaTheme();
+        
+        // フルスクリーン要請（ツールバー非表示）
+        if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(() => {
+                // iPhone Safari等では非対応の場合があるが、可能な限り実行
+            });
+        }
+        
+        window.removeEventListener('pointerdown', handleFirstInteraction);
+    }, [playTerrariaTheme]);
+
     // --- テラリア・メインテーマ合成エンジン (Web Audio API) ---
     const playTerrariaTheme = useCallback(() => {
         if (audioCtxRef.current) return;
@@ -126,6 +141,7 @@ const App = () => {
             if(e.code === 'ArrowDown' || e.code === 'KeyS') keysRef.current.down = false;
         };
         window.addEventListener('keydown', down); window.addEventListener('keyup', up);
+        window.addEventListener('pointerdown', handleFirstInteraction);
 
         let fId;
         const loop = () => { update(); draw(); fId = requestAnimationFrame(loop); };
@@ -289,7 +305,7 @@ const App = () => {
         <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', position: 'relative', touchAction: 'none', background: '#000', userSelect: 'none', WebkitUserSelect: 'none' }}>
             <canvas ref={canvasRef} onMouseDown={handleAction} onTouchStart={handleAction} style={{ display: 'block' }} />
             <div style={{ position: 'fixed', top: '20px', right: '20px', textAlign: 'right', zIndex: 100 }}>
-                <div style={{ color: '#fff', fontSize: '1.2em', fontWeight: 'bold', fontFamily: 'Orbitron' }}>NEURAL TERRARIA v22</div>
+                <div style={{ color: '#fff', fontSize: '1.2em', fontWeight: 'bold', fontFamily: 'Orbitron' }}>NEURAL TERRARIA v23</div>
                 <div style={{ width: '200px', height: '15px', background: '#222', border: '2px solid #fff', borderRadius: '8px', margin: '8px 0', overflow: 'hidden' }}>
                     <div style={{ width: `${stats.hp}%`, height: '100%', background: '#ff1744' }} />
                 </div>
