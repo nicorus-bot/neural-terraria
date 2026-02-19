@@ -19,6 +19,40 @@ const TILE_COLORS = {
     [TILE_TYPES.LEAVES]: '#2E7D32',
 };
 
+// Pixel art patterns (8x8)
+const PIXEL_PATTERNS = {
+    [TILE_TYPES.DIRT]: [
+        [0,0,1,0,0,0,1,0],
+        [0,1,1,1,0,1,1,1],
+        [1,1,0,1,1,1,0,1],
+        [0,1,1,1,0,1,1,1],
+        [0,0,1,0,0,0,1,0],
+        [0,1,1,1,0,1,1,1],
+        [1,1,0,1,1,1,0,1],
+        [0,1,1,1,0,1,1,1],
+    ],
+    [TILE_TYPES.GRASS]: [
+        [2,2,2,2,2,2,2,2],
+        [2,2,2,2,2,2,2,2],
+        [2,1,2,1,2,2,1,2],
+        [1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1],
+        [1,0,1,0,1,1,0,1],
+        [1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1],
+    ],
+    [TILE_TYPES.STONE]: [
+        [0,0,0,0,0,0,0,0],
+        [0,1,1,1,0,1,1,0],
+        [0,1,0,1,1,0,1,0],
+        [0,1,1,1,0,1,1,0],
+        [0,0,0,0,0,0,0,0],
+        [0,1,1,0,1,1,1,0],
+        [0,1,0,1,1,0,1,0],
+        [0,1,1,1,0,1,1,0],
+    ]
+};
+
 const App = () => {
     const canvasRef = useRef(null);
     const worldRef = useRef([]);
@@ -292,6 +326,29 @@ const App = () => {
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.save();
         ctx.translate(-Math.floor(cam.x), -Math.floor(cam.y));
+
+        const drawPixelTile = (x, y, type) => {
+            const pattern = PIXEL_PATTERNS[type];
+            if (!pattern) {
+                ctx.fillStyle = TILE_COLORS[type];
+                ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                return;
+            }
+            const pSize = TILE_SIZE / 8;
+            pattern.forEach((row, ry) => {
+                row.forEach((pixel, rx) => {
+                    if (pixel === 0) ctx.fillStyle = 'rgba(0,0,0,0.1)';
+                    else if (pixel === 2) ctx.fillStyle = '#66BB6A'; // Lighter grass
+                    else ctx.fillStyle = TILE_COLORS[type];
+                    ctx.fillRect(x * TILE_SIZE + rx * pSize, y * TILE_SIZE + ry * pSize, pSize, pSize);
+                });
+            });
+            // Tile border
+            ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        };
+
         const startX = Math.max(0, Math.floor(cam.x / TILE_SIZE));
         const endX = Math.min(WORLD_WIDTH, Math.ceil((cam.x + canvas.width) / TILE_SIZE));
         const startY = Math.max(0, Math.floor(cam.y / TILE_SIZE));
@@ -300,34 +357,43 @@ const App = () => {
             for (let x = startX; x < endX; x++) {
                 const tile = worldRef.current[y][x];
                 if (tile !== TILE_TYPES.AIR) {
-                    ctx.fillStyle = TILE_COLORS[tile];
-                    ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-                    ctx.strokeStyle = 'rgba(0,0,0,0.1)';
-                    ctx.strokeRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                    drawPixelTile(x, y, tile);
                 }
             }
         }
         const p = playerRef.current;
         const isMoving = Math.abs(p.vx) > 0.1;
         const facingRight = p.vx >= 0;
+        
+        // Pixelate Player
         ctx.save();
         ctx.translate(p.x + p.w / 2, p.y + p.h / 2);
         if (!facingRight) ctx.scale(-1, 1);
-        ctx.fillStyle = '#455A64';
-        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
-        ctx.fillStyle = '#37474F';
-        ctx.fillRect(-p.w / 2 - 2, -p.h / 2 - 2, p.w + 4, 14);
-        ctx.fillStyle = '#00E5FF';
+        
+        const drawPixelRect = (x, y, w, h, color) => {
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y, w, h);
+        };
+
+        // Helmet
+        drawPixelRect(-12, -20, 24, 16, '#37474F');
+        drawPixelRect(-14, -18, 28, 12, '#37474F');
+        // Visor
         ctx.shadowBlur = 10; ctx.shadowColor = '#00E5FF';
-        ctx.fillRect(facingRight ? 2 : -10, -p.h / 2 + 4, 8, 4);
+        drawPixelRect(2, -14, 10, 4, '#00E5FF');
         ctx.shadowBlur = 0;
+        // Body Armor
+        drawPixelRect(-10, -4, 20, 20, '#455A64');
+        drawPixelRect(-12, 0, 24, 14, '#455A64');
+        // Scarf/Cape
+        const capeAnim = isMoving ? Math.sin(Date.now() * 0.015) * 4 : 0;
         ctx.fillStyle = '#D32F2F';
-        const capeSwing = isMoving ? Math.sin(Date.now() * 0.015) * 5 : 0;
         ctx.beginPath();
-        ctx.moveTo(-p.w / 2, -p.h / 2 + 10);
-        ctx.lineTo(-p.w / 2 - 15, -p.h / 2 + 15 + capeSwing);
-        ctx.lineTo(-p.w / 2, -p.h / 2 + 25);
+        ctx.moveTo(-10, -4);
+        ctx.lineTo(-25, 4 + capeAnim);
+        ctx.lineTo(-10, 18);
         ctx.fill();
+        
         ctx.restore();
         projectilesRef.current.forEach(proj => {
             ctx.save(); ctx.translate(proj.x, proj.y); ctx.rotate(proj.angle);
@@ -417,7 +483,7 @@ const App = () => {
                 ))}
                 <div onClick={() => setIsMuted(!isMuted)} style={{ width: '50px', height: '50px', background: isMuted ? 'rgba(255, 0, 85, 0.4)' : 'rgba(0, 242, 255, 0.4)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '20px', border: '2px solid #fff', backdropFilter: 'blur(5px)' }}>{isMuted ? '🔇' : '🔊'}</div>
             </div>
-            <div style={{ position: 'fixed', top: '20px', right: '20px', color: '#fff', fontSize: '1.2em', fontWeight: 'bold', textShadow: '2px 2px rgba(0,0,0,0.5)', fontFamily: 'Orbitron' }}>NEURAL TERRARIA v7</div>
+            <div style={{ position: 'fixed', top: '20px', right: '20px', color: '#fff', fontSize: '1.2em', fontWeight: 'bold', textShadow: '2px 2px rgba(0,0,0,0.5)', fontFamily: 'Orbitron' }}>NEURAL TERRARIA v8</div>
             {isMobile && (
                 <div style={{ position: 'fixed', bottom: '30px', left: 0, right: 0, display: 'flex', justifyContent: 'space-between', padding: '0 30px', zIndex: 100, pointerEvents: 'none' }}>
                     <div style={{ display: 'flex', gap: '15px', pointerEvents: 'auto' }}>
