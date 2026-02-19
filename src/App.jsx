@@ -148,7 +148,7 @@ const App = () => {
         npcsRef.current.forEach(n => {
             n.vy += GRAVITY; n.y += n.vy;
             const tx = Math.floor((n.x + n.w/2) / TILE_SIZE), ty = Math.floor((n.y + n.h) / TILE_SIZE);
-            if (worldRef.current[ty] && worldRef.current[ty][tx] !== TILE_TYPES.AIR) { n.y = ty * TILE_SIZE - n.h; n.vy = 0; }
+            if (worldRef.current[ty] && worldRef.current[ty][tx] !== TILE_TYPES.AIR) { n.y = ty * TILE_SIZE - en.h; n.vy = 0; }
             if (Math.random() < 0.01) n.dir *= -1;
             n.x += n.dir * 0.5;
         });
@@ -219,6 +219,10 @@ const App = () => {
         if (e.touches && e.touches.length > 0) { cX = e.touches[0].clientX; cY = e.touches[0].clientY; }
         else { cX = e.clientX; cY = e.clientY; }
         const mouseX = cX - rect.left + cameraRef.current.x; const mouseY = cY - rect.top + cameraRef.current.y;
+        
+        // Block interaction if tapping UI
+        if (cY < 100 && cX < 400) return;
+
         const currentItem = inventory[selectedSlot];
         if (currentItem.type === 'ZENITH') {
             const p = playerRef.current; const colors = ['#00f2ff','#bf00ff','#ff0055','#33ff00','#ffff00'];
@@ -236,17 +240,17 @@ const App = () => {
     };
 
     return (
-        <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', position: 'relative', touchAction: 'none' }}>
+        <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', position: 'relative', touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}>
             <canvas ref={canvasRef} onMouseDown={handleAction} onTouchStart={handleAction} style={{ display: 'block' }} />
             <div style={{ position: 'fixed', top: '20px', left: '20px', display: 'flex', gap: '12px', zIndex: 100, alignItems: 'center' }}>
                 {inventory.map((item, idx) => (
-                    <div key={idx} onClick={() => setSelectedSlot(idx)} style={{ width: '50px', height: '50px', background: selectedSlot === idx ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255,255,255,0.4)', border: selectedSlot === idx ? '4px solid #ff4081' : '2px solid rgba(0,0,0,0.2)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-                        <div style={{ width: '30px', height: '30px', background: item.color, borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 'bold', color: '#fff' }}>{item.type === 'ZENITH' ? '⚔️' : ''}</div>
+                    <div key={idx} onPointerDown={(e) => { e.stopPropagation(); setSelectedSlot(idx); }} style={{ width: '50px', height: '50px', background: selectedSlot === idx ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255,255,255,0.4)', border: selectedSlot === idx ? '4px solid #ff4081' : '2px solid rgba(0,0,0,0.2)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', touchAction: 'none' }}>
+                        <div style={{ width: '30px', height: '30px', background: item.color, borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 'bold', color: '#fff', pointerEvents: 'none' }}>{item.type === 'ZENITH' ? '⚔️' : ''}</div>
                     </div>
                 ))}
-                <div onClick={() => setIsMuted(!isMuted)} style={{ width: '50px', height: '50px', background: isMuted ? 'rgba(255, 0, 85, 0.4)' : 'rgba(0, 242, 255, 0.4)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '20px', border: '2px solid #fff' }}>{isMuted ? '🔇' : '🔊'}</div>
+                <div onPointerDown={(e) => { e.stopPropagation(); setIsMuted(!isMuted); }} style={{ width: '50px', height: '50px', background: isMuted ? 'rgba(255, 0, 85, 0.4)' : 'rgba(0, 242, 255, 0.4)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '20px', border: '2px solid #fff' }}>{isMuted ? '🔇' : '🔊'}</div>
             </div>
-            <div style={{ position: 'fixed', top: '20px', right: '20px', color: '#fff', fontSize: '1.2em', fontWeight: 'bold', textShadow: '2px 2px rgba(0,0,0,0.5)', fontFamily: 'Orbitron' }}>NEURAL TERRARIA v11</div>
+            <div style={{ position: 'fixed', top: '20px', right: '20px', color: '#fff', fontSize: '1.2em', fontWeight: 'bold', textShadow: '2px 2px rgba(0,0,0,0.5)', fontFamily: 'Orbitron' }}>NEURAL TERRARIA v12</div>
             {isMobile && (
                 <div style={{ position: 'fixed', bottom: '30px', left: 0, right: 0, display: 'flex', justifyContent: 'space-between', padding: '0 30px', zIndex: 100, pointerEvents: 'none' }}>
                     <div style={{ display: 'flex', gap: '15px', pointerEvents: 'auto' }}>
