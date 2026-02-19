@@ -5,9 +5,9 @@ const TILE_SIZE = 32;
 const WORLD_WIDTH = 300;
 const WORLD_HEIGHT = 150;
 const GRAVITY = 0.4;
-const JUMP_FORCE = -9;
-const MOVE_SPEED = 4.5;
-const FRICTION = 0.8;
+const JUMP_FORCE = -9.5;
+const MOVE_SPEED = 5.0;
+const FRICTION = 0.82;
 
 const TILE_TYPES = { AIR: 0, DIRT: 1, GRASS: 2, STONE: 3, WOOD: 4, ASH: 5, LAVA: 6, BRICK: 7, GOLD: 8, TORCH: 9 };
 const TILE_COLORS = {
@@ -19,7 +19,7 @@ const TILE_COLORS = {
 const App = () => {
     const canvasRef = useRef(null);
     const worldRef = useRef([]);
-    const playerRef = useRef({ x: 4500, y: 500, vx: 0, vy: 0, w: 20, h: 36, onGround: false, facing: 1, hp: 100, mana: 100 });
+    const playerRef = useRef({ x: 4800, y: 500, vx: 0, vy: 0, w: 20, h: 36, onGround: false, facing: 1, hp: 100, mana: 100 });
     const keysRef = useRef({ left: false, right: false, jump: false, down: false });
     const cameraRef = useRef({ x: 0, y: 0 });
     const projectilesRef = useRef([]);
@@ -38,7 +38,7 @@ const App = () => {
         { type: TILE_TYPES.TORCH, label: '🔦' },
         { type: 'ZENITH', label: '⚔️', isWeapon: true },
         { type: 'STAFF', label: '🪄', isWeapon: true },
-        { type: 'WINGS', label: '🦋' }
+        { type: 'WINGS', label: '🦋', isFlight: true }
     ];
 
     // --- BGM Synthesis ---
@@ -46,29 +46,16 @@ const App = () => {
         if (audioCtxRef.current) return;
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         if (!AudioContext) return;
-        
         audioCtxRef.current = new AudioContext();
         const ctx = audioCtxRef.current;
-        
-        const playNote = (freq, time, duration, vol = 0.05, type = 'triangle') => {
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.type = type;
-            osc.frequency.setValueAtTime(freq, time);
-            gain.gain.setValueAtTime(vol, time);
-            gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+        const playNote = (freq, time, duration, vol = 0.04, type = 'triangle') => {
+            const osc = ctx.createOscillator(); const gain = ctx.createGain();
+            osc.type = type; osc.frequency.setValueAtTime(freq, time);
+            gain.gain.setValueAtTime(vol, time); gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
             osc.connect(gain); gain.connect(ctx.destination);
             osc.start(time); osc.stop(time + duration);
         };
-
-        const melody = [
-            { f: 392, d: 0.2 }, { f: 392, d: 0.2 }, { f: 392, d: 0.2 }, { f: 392, d: 0.2 },
-            { f: 261, d: 0.4 }, { f: 329, d: 0.4 }, { f: 392, d: 0.4 }, { f: 523, d: 0.4 },
-            { f: 493, d: 0.4 }, { f: 392, d: 0.4 }, { f: 329, d: 0.4 }, { f: 293, d: 0.8 },
-            { f: 349, d: 0.4 }, { f: 440, d: 0.4 }, { f: 523, d: 0.4 }, { f: 659, d: 0.4 },
-            { f: 587, d: 0.4 }, { f: 493, d: 0.4 }, { f: 392, d: 0.4 }, { f: 523, d: 0.8 },
-        ];
-
+        const melody = [{f:392,d:0.2},{f:392,d:0.2},{f:261,d:0.4},{f:329,d:0.4},{f:392,d:0.4},{f:523,d:0.4},{f:493,d:0.4},{f:392,d:0.4},{f:293,d:0.8}];
         let nextTime = ctx.currentTime;
         const loop = () => {
             if (isMuted) { setTimeout(loop, 1000); return; }
@@ -105,17 +92,24 @@ const App = () => {
             newWorld.push(row);
         }
         worldRef.current = newWorld;
-        enemiesRef.current = [{ type: 'KING_SLIME', x: 2000, y: 400, vx: 0, vy: 0, w: 100, h: 80, hp: 1000, maxHp: 1000, lastJump: 0 }];
+        enemiesRef.current = [{ type: 'KING_SLIME', x: 2500, y: 400, vx: 0, vy: 0, w: 100, h: 80, hp: 1000, maxHp: 1000, lastJump: 0 }];
 
         const handleResize = () => {
-            if (canvasRef.current) {
-                canvasRef.current.width = window.innerWidth;
-                canvasRef.current.height = window.innerHeight;
+            const canvas = canvasRef.current;
+            if (canvas) {
+                // --- 2x Resolution Upgrade ---
+                const scale = 2;
+                canvas.width = window.innerWidth * scale;
+                canvas.height = window.innerHeight * scale;
+                canvas.style.width = window.innerWidth + 'px';
+                canvas.style.height = window.innerHeight + 'px';
+                const ctx = canvas.getContext('2d');
+                ctx.scale(scale, scale);
+                ctx.imageSmoothingEnabled = false; // Keep pixel art sharp
             }
             setIsMobile(window.innerWidth < 1024);
         };
-        window.addEventListener('resize', handleResize);
-        handleResize();
+        window.addEventListener('resize', handleResize); handleResize();
 
         const down = (e) => {
             if(e.code === 'ArrowLeft' || e.code === 'KeyA') keysRef.current.left = true;
@@ -134,40 +128,37 @@ const App = () => {
         let fId;
         const loop = () => { update(); draw(); fId = requestAnimationFrame(loop); };
         fId = requestAnimationFrame(loop);
-
         setGameReady(true);
-
-        return () => {
-            window.removeEventListener('resize', handleResize);
-            window.removeEventListener('keydown', down);
-            window.removeEventListener('keyup', up);
-            cancelAnimationFrame(fId);
-        };
+        return () => { window.removeEventListener('resize', handleResize); window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); cancelAnimationFrame(fId); };
     }, []);
 
     const update = () => {
         const p = playerRef.current; const keys = keysRef.current;
         if (screenShakeRef.current > 0) screenShakeRef.current -= 0.5;
 
-        // --- 移動 ---
+        // Movement
         if (keys.left) { p.vx = -MOVE_SPEED; p.facing = -1; }
         else if (keys.right) { p.vx = MOVE_SPEED; p.facing = 1; }
         else { p.vx *= FRICTION; }
         
+        // Mining
         if (keys.down) {
             const tx = Math.floor((p.x + p.w / 2) / TILE_SIZE);
             const ty = Math.floor((p.y + p.h + 5) / TILE_SIZE);
-            if (worldRef.current[ty] && worldRef.current[ty][tx] !== TILE_TYPES.AIR && worldRef.current[ty][tx] !== TILE_TYPES.LAVA) {
-                worldRef.current[ty][tx] = TILE_TYPES.AIR;
-                screenShakeRef.current = 2;
-            }
+            if (worldRef.current[ty] && worldRef.current[ty][tx] !== TILE_TYPES.AIR) { worldRef.current[ty][tx] = TILE_TYPES.AIR; screenShakeRef.current = 1; }
         }
 
-        const canFly = inventory[selectedSlot]?.type === 'WINGS' && keys.jump;
-        p.vy += canFly ? 0.1 : GRAVITY;
-        if (keys.jump) {
-            if (p.onGround) { p.vy = JUMP_FORCE; p.onGround = false; }
-            else if (canFly && p.mana > 0) { p.vy = -4; p.mana -= 0.5; }
+        // --- Flying Logic Fix (Wings) ---
+        const activeItem = inventory[selectedSlot];
+        const canFly = activeItem?.isFlight && keys.jump;
+        
+        if (canFly && p.mana > 0) {
+            p.vy = -5.5; // Stronger upward force
+            p.mana -= 0.6;
+            p.onGround = false;
+        } else {
+            p.vy += GRAVITY;
+            if (keys.jump && p.onGround) { p.vy = JUMP_FORCE; p.onGround = false; }
         }
 
         p.x += p.vx; resolveCollision(p, 'x');
@@ -175,15 +166,13 @@ const App = () => {
         cameraRef.current.x += (p.x - window.innerWidth/2 - cameraRef.current.x) * 0.1;
         cameraRef.current.y += (p.y - window.innerHeight/2 - cameraRef.current.y) * 0.1;
 
-        if (Date.now() % 1000 < 20) { if (p.mana < 100) p.mana += 1; if (p.hp < 100) p.hp += 0.5; }
+        if (Date.now() % 1000 < 20) { if (p.mana < 100) p.mana += 2; if (p.hp < 100) p.hp += 0.5; }
         if (stats.hp !== Math.floor(p.hp)) setStats({ hp: Math.floor(p.hp), mana: Math.floor(p.mana) });
 
         projectilesRef.current = projectilesRef.current.filter(pr => {
             pr.x += pr.vx; pr.y += pr.vy; pr.life -= 0.02;
             enemiesRef.current.forEach(en => {
-                if (en.hp > 0 && Math.abs(pr.x - (en.x+en.w/2)) < en.w/2 && Math.abs(pr.y - (en.y+en.h/2)) < en.h/2) {
-                    en.hp -= 30; pr.life = 0; screenShakeRef.current = 5;
-                }
+                if (en.hp > 0 && Math.abs(pr.x - (en.x+en.w/2)) < en.w/2 && Math.abs(pr.y - (en.y+en.h/2)) < en.h/2) { en.hp -= 40; pr.life = 0; screenShakeRef.current = 5; }
             });
             return pr.life > 0;
         });
@@ -194,9 +183,8 @@ const App = () => {
             const tx = Math.floor((en.x+en.w/2)/TILE_SIZE), ty = Math.floor((en.y+en.h)/TILE_SIZE);
             if (worldRef.current[ty] && worldRef.current[ty][tx] !== TILE_TYPES.AIR) { en.y = ty*TILE_SIZE - en.h; en.vy = 0; if (Date.now() - en.lastJump > 2000) { en.vy = -10; en.vx = (p.x - en.x > 0 ? 1 : -1) * 3; en.lastJump = Date.now(); } }
             en.x += en.vx; en.vx *= 0.95;
-            if (Math.abs(p.x - en.x) < 30 && Math.abs(p.y - en.y) < 30) { p.hp -= 0.5; screenShakeRef.current = 2; }
+            if (Math.abs(p.x - en.x) < 30 && Math.abs(p.y - en.y) < 30) { p.hp -= 0.8; screenShakeRef.current = 2; }
         });
-
         if (p.x < 0) p.x = 0; if (p.x > WORLD_WIDTH * TILE_SIZE - p.w) p.x = WORLD_WIDTH * TILE_SIZE - p.w;
     };
 
@@ -207,15 +195,8 @@ const App = () => {
             for(let x=x1; x<=x2; x++) {
                 if (x < 0 || x >= WORLD_WIDTH || y < 0 || y >= WORLD_HEIGHT) continue;
                 if (worldRef.current[y][x] !== TILE_TYPES.AIR && worldRef.current[y][x] !== TILE_TYPES.LAVA) {
-                    if (axis === 'x') {
-                        if (p.vx > 0) p.x = x * TILE_SIZE - p.w - 0.1;
-                        else if (p.vx < 0) p.x = (x + 1) * TILE_SIZE + 0.1;
-                        p.vx = 0;
-                    } else {
-                        if (p.vy > 0) { p.y = y * TILE_SIZE - p.h - 0.1; p.onGround = true; }
-                        else if (p.vy < 0) p.y = (y + 1) * TILE_SIZE + 0.1;
-                        p.vy = 0;
-                    }
+                    if (axis === 'x') { if (p.vx > 0) p.x = x * TILE_SIZE - p.w - 0.1; else if (p.vx < 0) p.x = (x + 1) * TILE_SIZE + 0.1; p.vx = 0; }
+                    else { if (p.vy > 0) { p.y = y * TILE_SIZE - p.h - 0.1; p.onGround = true; } else if (p.vy < 0) p.y = (y + 1) * TILE_SIZE + 0.1; p.vy = 0; }
                 }
             }
         }
@@ -234,8 +215,7 @@ const App = () => {
             for(let x=startX; x<endX; x++) {
                 const t = worldRef.current[y][x];
                 if (t !== TILE_TYPES.AIR) {
-                    ctx.fillStyle = TILE_COLORS[t];
-                    ctx.fillRect(x*TILE_SIZE, y*TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                    ctx.fillStyle = TILE_COLORS[t]; ctx.fillRect(x*TILE_SIZE, y*TILE_SIZE, TILE_SIZE, TILE_SIZE);
                     if (t !== TILE_TYPES.LAVA) { ctx.strokeStyle = 'rgba(0,0,0,0.1)'; ctx.strokeRect(x*TILE_SIZE, y*TILE_SIZE, TILE_SIZE, TILE_SIZE); }
                 }
             }
@@ -251,7 +231,7 @@ const App = () => {
 
     const handleAction = (e) => {
         if (e.cancelable) e.preventDefault();
-        playTerrariaTheme(); // Play on first interaction
+        playTerrariaTheme();
         const rect = canvasRef.current.getBoundingClientRect();
         let cX, cY; if (e.touches) { cX = e.touches[0].clientX; cY = e.touches[0].clientY; } else { cX = e.clientX; cY = e.clientY; }
         const mX = cX - rect.left + cameraRef.current.x, mY = cY - rect.top + cameraRef.current.y;
@@ -274,25 +254,17 @@ const App = () => {
         const stickRef = useRef(null);
         const [active, setActive] = useState(false);
         const handleTouch = (e) => {
-            const touch = e.touches[0];
-            const base = baseRef.current.getBoundingClientRect();
-            const centerX = base.left + base.width / 2;
-            const centerY = base.top + base.height / 2;
-            const dx = touch.clientX - centerX;
-            const dy = touch.clientY - centerY;
-            const dist = Math.min(60, Math.sqrt(dx * dx + dy * dy));
-            const angle = Math.atan2(dy, dx);
-            const x = Math.cos(angle) * dist;
-            const y = Math.sin(angle) * dist;
+            const touch = e.touches[0]; const base = baseRef.current.getBoundingClientRect();
+            const centerX = base.left + base.width/2; const centerY = base.top + base.height/2;
+            const dx = touch.clientX - centerX; const dy = touch.clientY - centerY;
+            const dist = Math.min(60, Math.sqrt(dx*dx + dy*dy)); const angle = Math.atan2(dy, dx);
+            const x = Math.cos(angle)*dist; const y = Math.sin(angle)*dist;
             if (stickRef.current) stickRef.current.style.transform = `translate(${x}px, ${y}px)`;
-            keysRef.current.left = dx < -20;
-            keysRef.current.right = dx > 20;
-            keysRef.current.jump = dy < -20;
-            keysRef.current.down = dy > 30;
+            keysRef.current.left = dx < -20; keysRef.current.right = dx > 20; keysRef.current.jump = dy < -25; keysRef.current.down = dy > 30;
         };
         const resetJoystick = () => { setActive(false); if (stickRef.current) stickRef.current.style.transform = `translate(0, 0)`; keysRef.current.left = false; keysRef.current.right = false; keysRef.current.jump = false; keysRef.current.down = false; };
         return (
-            <div ref={baseRef} onTouchStart={(e) => { e.preventDefault(); setActive(true); handleTouch(e); playTerrariaTheme(); }} onTouchMove={(e) => { e.preventDefault(); handleTouch(e); }} onTouchEnd={resetJoystick} style={{ position: 'fixed', bottom: '50px', left: '50px', width: '150px', height: '150px', background: 'rgba(255,255,255,0.1)', borderRadius: '50%', border: '4px solid rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, pointerEvents: 'auto', touchAction: 'none' }}>
+            <div ref={baseRef} onTouchStart={(e) => { e.preventDefault(); setActive(true); handleTouch(e); playTerrariaTheme(); }} onTouchMove={(e) => { e.preventDefault(); handleTouch(e); }} onTouchEnd={resetJoystick} style={{ position: 'fixed', bottom: '60px', left: '60px', width: '150px', height: '150px', background: 'rgba(255,255,255,0.1)', borderRadius: '50%', border: '4px solid rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, pointerEvents: 'auto', touchAction: 'none' }}>
                 <div ref={stickRef} style={{ width: '70px', height: '70px', background: active ? 'rgba(0, 242, 255, 0.6)' : 'rgba(255,255,255,0.4)', borderRadius: '50%', border: '2px solid #fff' }} />
             </div>
         );
@@ -300,13 +272,10 @@ const App = () => {
 
     return (
         <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', position: 'relative', touchAction: 'none', background: '#000', userSelect: 'none', WebkitUserSelect: 'none' }}>
-            {/* Start Overlay */}
-            {!gameReady && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '2em', background: '#000', zIndex: 2000 }}>LOADING WORLD...</div>}
-            
-            <canvas ref={canvasRef} onMouseDown={handleAction} onTouchStart={handleAction} style={{ display: 'block', width: '100%', height: '100%' }} />
-            
+            {!gameReady && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '2em', background: '#000', zIndex: 2000 }}>LOADING...</div>}
+            <canvas ref={canvasRef} onMouseDown={handleAction} onTouchStart={handleAction} style={{ display: 'block' }} />
             <div style={{ position: 'fixed', top: '20px', right: '20px', textAlign: 'right', zIndex: 100 }}>
-                <div style={{ color: '#fff', fontSize: '1.2em', fontWeight: 'bold', fontFamily: 'Orbitron' }}>NEURAL TERRARIA v24</div>
+                <div style={{ color: '#fff', fontSize: '1.2em', fontWeight: 'bold', fontFamily: 'Orbitron' }}>NEURAL TERRARIA v25</div>
                 <div style={{ width: '200px', height: '15px', background: '#222', border: '2px solid #fff', borderRadius: '8px', margin: '8px 0', overflow: 'hidden' }}>
                     <div style={{ width: `${stats.hp}%`, height: '100%', background: '#ff1744' }} />
                 </div>
