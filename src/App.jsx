@@ -32,6 +32,7 @@ const App = () => {
     const [isMobile, setIsMobile] = useState(false);
     const [spawnBoss, setSpawnBoss] = useState(false);
     const [isMuted, setIsMuted] = useState(false);
+    const [audioStarted, setAudioStarted] = useState(false);
 
     const audioRef = useRef(null);
 
@@ -45,17 +46,45 @@ const App = () => {
     // Initialization
     useEffect(() => {
         // Terraria-like background music
-        audioRef.current = new Audio('https://www.chosic.com/wp-content/uploads/2021/07/The-Adventure-Begins.mp3');
-        audioRef.current.loop = true;
-        audioRef.current.volume = 0.3;
-        const playAudio = () => {
-            audioRef.current.play().catch(() => {});
-            window.removeEventListener('mousedown', playAudio);
-            window.removeEventListener('touchstart', playAudio);
-        };
-        window.addEventListener('mousedown', playAudio);
-        window.addEventListener('touchstart', playAudio);
+        const audio = new Audio('https://www.chosic.com/wp-content/uploads/2021/07/The-Adventure-Begins.mp3');
+        audio.loop = true;
+        audio.volume = 0.3;
+        audioRef.current = audio;
 
+        const handleFirstInteraction = () => {
+            if (audioRef.current) {
+                audioRef.current.play().catch(e => console.error("Audio play failed:", e));
+                setAudioStarted(true);
+            }
+            window.removeEventListener('mousedown', handleFirstInteraction);
+            window.removeEventListener('touchstart', handleFirstInteraction);
+            window.removeEventListener('keydown', handleFirstInteraction);
+        };
+
+        window.addEventListener('mousedown', handleFirstInteraction);
+        window.addEventListener('touchstart', handleFirstInteraction);
+        window.addEventListener('keydown', handleFirstInteraction);
+
+        return () => {
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current = null;
+            }
+            window.removeEventListener('mousedown', handleFirstInteraction);
+            window.removeEventListener('touchstart', handleFirstInteraction);
+            window.removeEventListener('keydown', handleFirstInteraction);
+        };
+    }, []);
+
+    // Mute handling
+    useEffect(() => {
+        if (audioRef.current) {
+            audioRef.current.muted = isMuted;
+        }
+    }, [isMuted]);
+
+    // Secondary Initialization (World & Logic)
+    useEffect(() => {
         // Generate World
         const newWorld = [];
         for (let y = 0; y < WORLD_HEIGHT; y++) {
@@ -564,7 +593,7 @@ const App = () => {
             />
 
             {/* UI Overlay */}
-            <div style={{ position: 'fixed', top: '20px', left: '20px', display: 'flex', gap: '12px', zIndex: 100 }}>
+            <div style={{ position: 'fixed', top: '20px', left: '20px', display: 'flex', gap: '12px', zIndex: 100, alignItems: 'center' }}>
                 {inventory.map((item, idx) => (
                     <div 
                         key={idx}
@@ -593,10 +622,23 @@ const App = () => {
                         </div>
                     </div>
                 ))}
+                
+                {/* Audio Toggle */}
+                <div 
+                    onClick={() => setIsMuted(!isMuted)}
+                    style={{
+                        width: '50px', height: '50px',
+                        background: isMuted ? 'rgba(255, 0, 85, 0.4)' : 'rgba(0, 242, 255, 0.4)',
+                        borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        cursor: 'pointer', fontSize: '20px', border: '2px solid #fff', backdropFilter: 'blur(5px)'
+                    }}
+                >
+                    {isMuted ? '🔇' : '🔊'}
+                </div>
             </div>
 
             <div style={{ position: 'fixed', top: '20px', right: '20px', color: '#fff', fontSize: '1.2em', fontWeight: 'bold', textShadow: '2px 2px rgba(0,0,0,0.5)', fontFamily: 'Orbitron' }}>
-                NEURAL TERRARIA v5
+                NEURAL TERRARIA v6
             </div>
 
             {isMobile && (
