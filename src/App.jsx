@@ -235,26 +235,55 @@ const App = () => {
     };
 
     const handleAction = (e) => {
-        const rect = canvasRef.current.getBoundingClientRect(); const clientX = e.touches ? e.touches[0].clientX : e.clientX; const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-        const mouseX = clientX - rect.left + cameraRef.current.x; const mouseY = clientY - rect.top + cameraRef.current.y;
-        if (inventory[selectedSlot].type === 'ZENITH') {
-            const p = playerRef.current; const colors = ['#00f2ff','#bf00ff','#ff0055','#33ff00','#ffff00'];
+        if (e.cancelable) e.preventDefault();
+        const rect = canvasRef.current.getBoundingClientRect();
+        let clientX, clientY;
+        
+        if (e.touches && e.touches.length > 0) {
+            clientX = e.touches[0].clientX;
+            clientY = e.touches[0].clientY;
+        } else {
+            clientX = e.clientX;
+            clientY = e.clientY;
+        }
+        
+        const mouseX = clientX - rect.left + cameraRef.current.x;
+        const mouseY = clientY - rect.top + cameraRef.current.y;
+        
+        const currentItem = inventory[selectedSlot];
+        if (currentItem.type === 'ZENITH') {
+            const p = playerRef.current;
+            const colors = ['#00f2ff','#bf00ff','#ff0055','#33ff00','#ffff00'];
             for (let i = 0; i < 8; i++) {
-                const angle = Math.atan2(mouseY - p.y, mouseX - p.x) + (Math.random() - 0.5) * 0.5;
-                projectilesRef.current.push({ x: p.x + p.w / 2, y: p.y + p.h / 2, vx: Math.cos(angle) * 10, vy: Math.sin(angle) * 10, angle: Math.random() * Math.PI * 2, color: colors[Math.floor(Math.random() * colors.length)], life: 1.0 });
+                const angle = Math.atan2(mouseY - (p.y + p.h/2), mouseX - (p.x + p.w/2)) + (Math.random() - 0.5) * 0.4;
+                const speed = 10 + Math.random() * 5;
+                projectilesRef.current.push({
+                    x: p.x + p.w / 2,
+                    y: p.y + p.h / 2,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    angle: Math.random() * Math.PI * 2,
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    life: 1.0
+                });
             }
             return;
         }
         const tx = Math.floor(mouseX / TILE_SIZE), ty = Math.floor(mouseY / TILE_SIZE);
         if (tx >= 0 && tx < WORLD_WIDTH && ty >= 0 && ty < WORLD_HEIGHT) {
-            if (worldRef.current[ty][tx] === TILE_TYPES.AIR) worldRef.current[ty][tx] = inventory[selectedSlot].type;
+            if (worldRef.current[ty][tx] === TILE_TYPES.AIR) worldRef.current[ty][tx] = currentItem.type;
             else worldRef.current[ty][tx] = TILE_TYPES.AIR;
         }
     };
 
     return (
         <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', position: 'relative', touchAction: 'none' }}>
-            <canvas ref={canvasRef} onMouseDown={handleAction} style={{ display: 'block' }} />
+            <canvas 
+                ref={canvasRef} 
+                onMouseDown={handleAction} 
+                onTouchStart={handleAction}
+                style={{ display: 'block' }} 
+            />
             <div style={{ position: 'fixed', top: '20px', left: '20px', display: 'flex', gap: '12px', zIndex: 100, alignItems: 'center' }}>
                 {inventory.map((item, idx) => (
                     <div key={idx} onClick={() => setSelectedSlot(idx)} style={{ width: '50px', height: '50px', background: selectedSlot === idx ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255,255,255,0.4)', border: selectedSlot === idx ? '4px solid #ff4081' : '2px solid rgba(0,0,0,0.2)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
@@ -263,15 +292,34 @@ const App = () => {
                 ))}
                 <div onClick={() => setIsMuted(!isMuted)} style={{ width: '50px', height: '50px', background: isMuted ? 'rgba(255, 0, 85, 0.4)' : 'rgba(0, 242, 255, 0.4)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '20px', border: '2px solid #fff' }}>{isMuted ? '🔇' : '🔊'}</div>
             </div>
-            <div style={{ position: 'fixed', top: '20px', right: '20px', color: '#fff', fontSize: '1.2em', fontWeight: 'bold', textShadow: '2px 2px rgba(0,0,0,0.5)', fontFamily: 'Orbitron' }}>NEURAL TERRARIA v9 {isHardMode ? '(HARDMODE)' : ''}</div>
+            <div style={{ position: 'fixed', top: '20px', right: '20px', color: '#fff', fontSize: '1.2em', fontWeight: 'bold', textShadow: '2px 2px rgba(0,0,0,0.5)', fontFamily: 'Orbitron' }}>NEURAL TERRARIA v10 {isHardMode ? '(HARDMODE)' : ''}</div>
             {isMobile && (
                 <div style={{ position: 'fixed', bottom: '30px', left: 0, right: 0, display: 'flex', justifyContent: 'space-between', padding: '0 30px', zIndex: 100, pointerEvents: 'none' }}>
                     <div style={{ display: 'flex', gap: '15px', pointerEvents: 'auto' }}>
-                        <button onTouchStart={() => keysRef.current['KeyA'] = true} onTouchEnd={() => keysRef.current['KeyA'] = false} className="ctrl-btn">←</button>
-                        <button onTouchStart={() => keysRef.current['KeyD'] = true} onTouchEnd={() => keysRef.current['KeyD'] = false} className="ctrl-btn">→</button>
+                        <button 
+                            onContextMenu={(e) => e.preventDefault()}
+                            onTouchStart={(e) => { e.preventDefault(); keysRef.current['KeyA'] = true; }} 
+                            onTouchEnd={(e) => { e.preventDefault(); keysRef.current['KeyA'] = false; }} 
+                            onTouchCancel={(e) => { e.preventDefault(); keysRef.current['KeyA'] = false; }}
+                            className="ctrl-btn"
+                        >←</button>
+                        <button 
+                            onContextMenu={(e) => e.preventDefault()}
+                            onTouchStart={(e) => { e.preventDefault(); keysRef.current['KeyD'] = true; }} 
+                            onTouchEnd={(e) => { e.preventDefault(); keysRef.current['KeyD'] = false; }} 
+                            onTouchCancel={(e) => { e.preventDefault(); keysRef.current['KeyD'] = false; }}
+                            className="ctrl-btn"
+                        >→</button>
                     </div>
                     <div style={{ pointerEvents: 'auto' }}>
-                        <button onTouchStart={() => keysRef.current['Space'] = true} onTouchEnd={() => keysRef.current['Space'] = false} className="ctrl-btn" style={{ width: '100px', height: '100px', borderRadius: '50%', background: 'rgba(255, 64, 129, 0.4)' }}>JUMP</button>
+                        <button 
+                            onContextMenu={(e) => e.preventDefault()}
+                            onTouchStart={(e) => { e.preventDefault(); keysRef.current['Space'] = true; }} 
+                            onTouchEnd={(e) => { e.preventDefault(); keysRef.current['Space'] = false; }} 
+                            onTouchCancel={(e) => { e.preventDefault(); keysRef.current['Space'] = false; }}
+                            className="ctrl-btn" 
+                            style={{ width: '100px', height: '100px', borderRadius: '50%', background: 'rgba(255, 64, 129, 0.4)' }}
+                        >JUMP</button>
                     </div>
                 </div>
             )}
