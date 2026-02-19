@@ -58,7 +58,10 @@ const App = () => {
         
         // Initial Enemy Spawn
         enemiesRef.current = [
-            { type: 'KING_SLIME', x: 800, y: 100, vx: 0, vy: 0, w: 120, h: 90, hp: 500, maxHp: 500, lastJump: 0, lastHit: 0 }
+            { type: 'KING_SLIME', x: 800, y: 100, vx: 0, vy: 0, w: 120, h: 90, hp: 500, maxHp: 500, lastJump: 0, lastHit: 0 },
+            { type: 'MOON_LORD', x: 2000, y: 100, vx: 0, vy: 0, w: 300, h: 400, hp: 5000, maxHp: 5000, lastAttack: 0, lastHit: 0 },
+            { type: 'ZOMBIE', x: 400, y: 100, vx: 0, vy: 0, w: 20, h: 36, hp: 50, maxHp: 50, lastHit: 0 },
+            { type: 'SLIME', x: 600, y: 100, vx: 0, vy: 0, w: 24, h: 18, hp: 20, maxHp: 20, lastJump: 0, lastHit: 0 }
         ];
 
         const handleResize = () => {
@@ -181,6 +184,44 @@ const App = () => {
                 
                 en.x += en.vx;
                 if (!onGround) en.vx *= 0.98; else en.vx *= 0.9;
+            }
+
+            if (en.type === 'ZOMBIE') {
+                en.vy += GRAVITY;
+                en.y += en.vy;
+                const tx = Math.floor((en.x + en.w/2) / TILE_SIZE);
+                const ty = Math.floor((en.y + en.h) / TILE_SIZE);
+                if (worldRef.current[ty] && worldRef.current[ty][tx] !== TILE_TYPES.AIR) {
+                    en.y = ty * TILE_SIZE - en.h;
+                    en.vy = 0;
+                }
+                en.vx = (p.x - en.x > 0 ? 1 : -1) * 1.5;
+                en.x += en.vx;
+            }
+
+            if (en.type === 'SLIME') {
+                en.vy += GRAVITY;
+                en.y += en.vy;
+                const tx = Math.floor((en.x + en.w/2) / TILE_SIZE);
+                const ty = Math.floor((en.y + en.h) / TILE_SIZE);
+                let onGround = false;
+                if (worldRef.current[ty] && worldRef.current[ty][tx] !== TILE_TYPES.AIR) {
+                    en.y = ty * TILE_SIZE - en.h;
+                    en.vy = 0;
+                    onGround = true;
+                }
+                if (onGround && Math.random() < 0.02) {
+                    en.vy = -6;
+                    en.vx = (p.x - en.x > 0 ? 1 : -1) * 2;
+                }
+                en.x += en.vx;
+                en.vx *= 0.95;
+            }
+
+            if (en.type === 'MOON_LORD') {
+                // Floating logic
+                en.y += Math.sin(Date.now() * 0.001) * 0.5;
+                en.x += (p.x - en.x) * 0.01;
             }
             return true;
         });
@@ -345,6 +386,58 @@ const App = () => {
                 ctx.lineTo(15, -en.h - 10);
                 ctx.fill();
             }
+
+            if (en.type === 'ZOMBIE') {
+                const isHit = Date.now() - en.lastHit < 100;
+                ctx.fillStyle = isHit ? '#fff' : '#4a5d23';
+                ctx.fillRect(en.x, en.y, en.w, en.h);
+                ctx.fillStyle = '#333';
+                ctx.fillRect(en.x + (en.vx > 0 ? 12 : 4), en.y + 6, 4, 4);
+            }
+
+            if (en.type === 'SLIME') {
+                const isHit = Date.now() - en.lastHit < 100;
+                ctx.fillStyle = isHit ? '#fff' : 'rgba(0, 255, 100, 0.8)';
+                ctx.beginPath();
+                ctx.arc(en.x + en.w/2, en.y + en.h/2, en.w/2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            if (en.type === 'MOON_LORD') {
+                const isHit = Date.now() - en.lastHit < 100;
+                ctx.save();
+                ctx.translate(en.x + en.w / 2, en.y + en.h / 2);
+                
+                // Body
+                ctx.fillStyle = isHit ? '#fff' : 'rgba(100, 150, 150, 0.6)';
+                ctx.shadowBlur = 30;
+                ctx.shadowColor = '#00f2ff';
+                ctx.beginPath();
+                ctx.moveTo(-80, 150);
+                ctx.lineTo(0, -180);
+                ctx.lineTo(80, 150);
+                ctx.closePath();
+                ctx.fill();
+
+                // Eyes (Top)
+                ctx.fillStyle = '#ff0055';
+                ctx.shadowColor = '#ff0055';
+                ctx.beginPath(); ctx.arc(0, -120, 15, 0, Math.PI * 2); ctx.fill();
+                // Hands
+                ctx.beginPath(); ctx.arc(-120, 20, 25, 0, Math.PI * 2); ctx.fill();
+                ctx.beginPath(); ctx.arc(120, 20, 25, 0, Math.PI * 2); ctx.fill();
+
+                ctx.restore();
+            }
+
+            // Health Bar
+            if (en.hp < en.maxHp) {
+                ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                ctx.fillRect(en.x, en.y - 15, en.w, 6);
+                ctx.fillStyle = '#ff0055';
+                ctx.fillRect(en.x, en.y - 15, en.w * (en.hp / en.maxHp), 6);
+            }
+            
             ctx.restore();
         });
 
@@ -440,7 +533,7 @@ const App = () => {
             </div>
 
             <div style={{ position: 'fixed', top: '20px', right: '20px', color: '#fff', fontSize: '1.2em', fontWeight: 'bold', textShadow: '2px 2px rgba(0,0,0,0.5)', fontFamily: 'Orbitron' }}>
-                NEURAL TERRARIA v3
+                NEURAL TERRARIA v4
             </div>
 
             {isMobile && (
