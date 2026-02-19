@@ -6,8 +6,8 @@ const WORLD_HEIGHT = 150;
 const TILE_SIZE = 32;
 const GRAVITY = 0.45;
 const JUMP_FORCE = -9.5;
-const MOVE_SPEED = 5.2;
-const FRICTION = 0.85;
+const MOVE_SPEED = 5.0;
+const FRICTION = 0.8;
 
 const TILE_TYPES = { 
     AIR: 0, DIRT: 1, GRASS: 2, STONE: 3, WOOD: 4, LEAVES: 5, 
@@ -22,10 +22,19 @@ const TILE_COLORS = {
     [TILE_TYPES.TORCH]: '#FFD54F',
 };
 
+const PIXEL_PATTERNS = {
+    [TILE_TYPES.DIRT]: [[0,0,1,0,0,0,1,0], [0,1,1,1,0,1,1,1], [1,1,0,1,1,1,0,1], [0,1,1,1,0,1,1,1]],
+    [TILE_TYPES.GRASS]: [[2,2,2,2,2,2,2,2], [2,2,2,2,2,2,2,2], [2,1,2,1,2,2,1,2], [1,1,1,1,1,1,1,1]],
+    [TILE_TYPES.CORRUPT_GRASS]: [[2,2,2,2,2,2,2,2], [2,2,2,2,2,2,2,2], [2,1,2,1,2,2,1,2], [1,1,1,1,1,1,1,1]],
+    [TILE_TYPES.STONE]: [[0,0,0,0,0,0,0,0], [0,1,1,1,0,1,1,0], [0,1,0,1,1,0,1,0], [0,1,1,1,0,1,1,0]],
+    [TILE_TYPES.ASH]: [[0,0,1,0,1,0,0,1], [0,1,1,1,1,1,0,0], [1,1,1,1,1,1,1,0]],
+    [TILE_TYPES.HELLSTONE]: [[1,1,0,1,1,0,1,1], [1,1,1,1,1,1,1,1], [0,1,1,0,1,1,0,1]],
+};
+
 const App = () => {
     const canvasRef = useRef(null);
     const worldRef = useRef([]);
-    const playerRef = useRef({ x: 4800, y: 500, vx: 0, vy: 0, w: 20, h: 36, onGround: false, hp: 100, maxHp: 100, mana: 100, maxMana: 100, facing: 1 });
+    const playerRef = useRef({ x: 4000, y: 500, vx: 0, vy: 0, w: 20, h: 36, onGround: false, hp: 100, maxHp: 100, mana: 100, maxMana: 100, facing: 1 });
     const keysRef = useRef({ left: false, right: false, jump: false });
     const cameraRef = useRef({ x: 0, y: 0 });
     const projectilesRef = useRef([]);
@@ -95,13 +104,11 @@ const App = () => {
         const handleResize = () => {
             const canvas = canvasRef.current;
             if (canvas) {
-                const dpr = window.devicePixelRatio || 1;
-                canvas.width = window.innerWidth * dpr;
-                canvas.height = window.innerHeight * dpr;
+                const dpr = 1; // Simplify DPR for stability
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
                 canvas.style.width = window.innerWidth + 'px';
                 canvas.style.height = window.innerHeight + 'px';
-                const ctx = canvas.getContext('2d');
-                ctx.scale(dpr, dpr);
             }
             setIsMobile(window.innerWidth < 1024);
         };
@@ -135,28 +142,13 @@ const App = () => {
         setGameTime(prev => (prev + 3) % 24000);
         if (screenShakeRef.current > 0) screenShakeRef.current -= 0.5;
 
-        // Movement Logic
-        let targetVx = 0;
-        if (keys.left) { targetVx = -MOVE_SPEED; p.facing = -1; }
-        else if (keys.right) { targetVx = MOVE_SPEED; p.facing = 1; }
-        p.vx = targetVx || (p.vx * FRICTION);
+        // --- Movement Fix ---
+        if (keys.left) { p.vx = -MOVE_SPEED; p.facing = -1; }
+        else if (keys.right) { p.vx = MOVE_SPEED; p.facing = 1; }
+        else { p.vx *= FRICTION; }
+        if (Math.abs(p.vx) < 0.1) p.vx = 0;
         
-        // Auto-Jump (Step-up)
-        if (p.onGround && targetVx !== 0) {
-            const sideX = targetVx > 0 ? p.x + p.w + 2 : p.x - 2;
-            const tx = Math.floor(sideX / TILE_SIZE);
-            const tyFoot = Math.floor((p.y + p.h - 2) / TILE_SIZE);
-            const tyHead = Math.floor((p.y + 2) / TILE_SIZE);
-            const tyAbove = Math.floor((p.y - TILE_SIZE + p.h - 2) / TILE_SIZE);
-            
-            if (worldRef.current[tyFoot] && worldRef.current[tyFoot][tx] !== TILE_TYPES.AIR) {
-                // If foot is blocked but head space is free, auto-step
-                if (worldRef.current[tyAbove] && worldRef.current[tyAbove][tx] === TILE_TYPES.AIR) {
-                    p.y -= TILE_SIZE;
-                }
-            }
-        }
-
+        // Flight
         const isFlying = inventory[selectedSlot].type === 'WINGS' && keys.jump;
         p.vy += isFlying ? 0.15 : GRAVITY;
         if (keys.jump) {
@@ -231,9 +223,13 @@ const App = () => {
             for (let x = startX; x < endX; x++) {
                 const t = worldRef.current[y][x];
                 if (t !== TILE_TYPES.AIR) {
-                    ctx.fillStyle = TILE_COLORS[t];
-                    ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-                    ctx.strokeStyle = 'rgba(0,0,0,0.1)'; ctx.strokeRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                    const pattern = PIXEL_PATTERNS[t]; const pSize = TILE_SIZE / 8;
+                    if (pattern) {
+                        pattern.forEach((row, ry) => { row.forEach((pixel, rx) => {
+                            ctx.fillStyle = pixel === 0 ? 'rgba(0,0,0,0.15)' : pixel === 2 ? (t === TILE_TYPES.CORRUPT_GRASS ? '#BA68C8' : '#66BB6A') : TILE_COLORS[t];
+                            ctx.fillRect(x * TILE_SIZE + rx * pSize, y * TILE_SIZE + ry * pSize, pSize, pSize);
+                        }); });
+                    } else { ctx.fillStyle = TILE_COLORS[t]; ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE); }
                 }
             }
         }
@@ -283,31 +279,31 @@ const App = () => {
             <canvas ref={canvasRef} onMouseDown={handleAction} onTouchStart={handleAction} style={{ display: 'block' }} />
             
             <div style={{ position: 'fixed', top: '20px', right: '20px', textAlign: 'right', zIndex: 100 }}>
-                <div style={{ color: '#fff', fontSize: '1.4em', fontWeight: 'bold', fontFamily: 'Orbitron', textShadow: '0 0 10px #00f2ff' }}>NEURAL TERRARIA v16</div>
+                <div style={{ color: '#fff', fontSize: '1.4em', fontWeight: 'bold', fontFamily: 'Orbitron', textShadow: '0 0 10px #00f2ff' }}>NEURAL TERRARIA v17</div>
                 <div style={{ width: '220px', height: '22px', background: 'rgba(0,0,0,0.6)', border: '2px solid #fff', borderRadius: '11px', margin: '10px 0', overflow: 'hidden' }}>
                     <div style={{ width: `${stats.hp}%`, height: '100%', background: '#ff1744' }} />
                 </div>
-                <div style={{ width: '180px', height: '12px', background: 'rgba(0,0,0,0.6)', border: '2px solid #fff', borderRadius: '6px', marginLeft: '40px', overflow: 'hidden' }}>
+                <div style={{ width: '180px', height: '12px', background: 'rgba(0,0,0,0.6)', border: '2px solid #fff', borderRadius: '5px', marginLeft: '40px', overflow: 'hidden' }}>
                     <div style={{ width: `${stats.mana}%`, height: '100%', background: '#2979ff' }} />
                 </div>
             </div>
 
             <div style={{ position: 'fixed', top: '20px', left: '20px', display: 'flex', gap: '10px', zIndex: 100 }}>
                 {inventory.map((item, idx) => (
-                    <div key={idx} onPointerDown={(e) => { e.stopPropagation(); setSelectedSlot(idx); }} style={{ width: '64px', height: '64px', background: selectedSlot === idx ? '#fff' : 'rgba(255,255,255,0.4)', border: selectedSlot === idx ? '4px solid #ff4081' : '2px solid #fff', borderRadius: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '32px', backdropFilter: 'blur(10px)' }}>{item.label}</div>
+                    <div key={idx} onPointerDown={(e) => { e.stopPropagation(); setSelectedSlot(idx); }} style={{ width: '55px', height: '55px', background: selectedSlot === idx ? '#fff' : 'rgba(255,255,255,0.4)', border: selectedSlot === idx ? '4px solid #ff4081' : '2px solid #fff', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px', backdropFilter: 'blur(10px)' }}>{item.label}</div>
                 ))}
             </div>
 
             {isMobile && (
-                <div style={{ position: 'fixed', bottom: '50px', left: '50px', right: '50px', display: 'flex', justifyContent: 'space-between', zIndex: 100, pointerEvents: 'none' }}>
-                    <div style={{ display: 'flex', gap: '40px', pointerEvents: 'auto' }}>
-                        <button onTouchStart={(e) => { e.preventDefault(); keysRef.current.left = true; }} onTouchEnd={() => keysRef.current.left = false} className="ctrl-btn">←</button>
-                        <button onTouchStart={(e) => { e.preventDefault(); keysRef.current.right = true; }} onTouchEnd={() => keysRef.current.right = false} className="ctrl-btn">→</button>
+                <div style={{ position: 'fixed', bottom: '40px', left: '40px', right: '40px', display: 'flex', justifyContent: 'space-between', zIndex: 100, pointerEvents: 'none' }}>
+                    <div style={{ display: 'flex', gap: '20px', pointerEvents: 'auto' }}>
+                        <button onTouchStart={(e) => { e.preventDefault(); keysRef.current.left = true; }} onTouchEnd={(e) => { e.preventDefault(); keysRef.current.left = false; }} className="ctrl-btn">←</button>
+                        <button onTouchStart={(e) => { e.preventDefault(); keysRef.current.right = true; }} onTouchEnd={(e) => { e.preventDefault(); keysRef.current.right = false; }} className="ctrl-btn">→</button>
                     </div>
-                    <button onTouchStart={(e) => { e.preventDefault(); keysRef.current.jump = true; }} onTouchEnd={() => keysRef.current.jump = false} className="ctrl-btn" style={{ width: '140px', height: '140px', borderRadius: '50%', background: 'rgba(0, 242, 255, 0.4)', fontSize: '2em' }}>JUMP</button>
+                    <button onTouchStart={(e) => { e.preventDefault(); keysRef.current.jump = true; }} onTouchEnd={(e) => { e.preventDefault(); keysRef.current.jump = false; }} className="ctrl-btn" style={{ width: '100px', height: '100px', borderRadius: '50%', background: 'rgba(0, 242, 255, 0.4)', fontSize: '1.5em' }}>JUMP</button>
                 </div>
             )}
-            <style>{`.ctrl-btn { width: 120px; height: 120px; background: rgba(255,255,255,0.15); border: 4px solid #fff; border-radius: 30px; color: #fff; font-weight: bold; font-size: 4em; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(15px); pointer-events: auto; -webkit-tap-highlight-color: transparent; }`}</style>
+            <style>{`.ctrl-btn { width: 80px; height: 80px; background: rgba(255,255,255,0.15); border: 4px solid #fff; border-radius: 20px; color: #fff; font-weight: bold; font-size: 3em; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(15px); pointer-events: auto; -webkit-tap-highlight-color: transparent; }`}</style>
         </div>
     );
 };
