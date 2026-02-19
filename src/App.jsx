@@ -90,10 +90,14 @@ const App = () => {
         const p = playerRef.current;
         const keys = keysRef.current;
 
-        // Horizontal Movement
-        if (keys['ArrowLeft'] || keys['KeyA']) p.vx = -MOVE_SPEED;
-        else if (keys['ArrowRight'] || keys['KeyD']) p.vx = MOVE_SPEED;
-        else p.vx *= FRICTION;
+        // Horizontal Movement - Reset vx first to avoid sliding feel if needed, 
+        // but Terraria has slight weight, so we'll use keys directly for precision.
+        let targetVx = 0;
+        if (keys['ArrowLeft'] || keys['KeyA']) targetVx = -MOVE_SPEED;
+        else if (keys['ArrowRight'] || keys['KeyD']) targetVx = MOVE_SPEED;
+        
+        p.vx = targetVx || (p.vx * FRICTION);
+        if (Math.abs(p.vx) < 0.1) p.vx = 0;
 
         // Vertical Movement
         p.vy += GRAVITY;
@@ -189,18 +193,45 @@ const App = () => {
             }
         }
 
-        // Draw Player
+        // Draw Player (かっこいいスタイル)
         const p = playerRef.current;
-        ctx.fillStyle = '#FF5722';
-        ctx.fillRect(p.x, p.y, p.w, p.h);
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(p.x, p.y, p.w, p.h);
+        const isMoving = Math.abs(p.vx) > 0.1;
+        const walkCycle = isMoving ? Math.sin(Date.now() * 0.01) * 4 : 0;
+        const facingRight = p.vx >= 0;
+
+        ctx.save();
+        ctx.translate(p.x + p.w / 2, p.y + p.h / 2);
+        if (!facingRight) ctx.scale(-1, 1);
+
+        // Body Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.fillRect(-p.w / 2 + 2, -p.h / 2 + 4, p.w, p.h);
+
+        // Armor/Body
+        ctx.fillStyle = '#455A64'; // Cool grey-blue
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
         
-        // Eyes
-        ctx.fillStyle = '#333';
-        const eyeOffset = p.vx >= 0 ? 12 : 4;
-        ctx.fillRect(p.x + eyeOffset, p.y + 8, 4, 4);
+        // Helmet/Head
+        ctx.fillStyle = '#37474F';
+        ctx.fillRect(-p.w / 2 - 2, -p.h / 2 - 2, p.w + 4, 14);
+        
+        // Visor (Glowing)
+        ctx.fillStyle = '#00E5FF';
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#00E5FF';
+        ctx.fillRect(facingRight ? 2 : -10, -p.h / 2 + 4, 8, 4);
+        ctx.shadowBlur = 0;
+
+        // Scarf/Cape
+        ctx.fillStyle = '#D32F2F';
+        const capeSwing = isMoving ? Math.sin(Date.now() * 0.015) * 5 : 0;
+        ctx.beginPath();
+        ctx.moveTo(-p.w / 2, -p.h / 2 + 10);
+        ctx.lineTo(-p.w / 2 - 15, -p.h / 2 + 15 + capeSwing);
+        ctx.lineTo(-p.w / 2, -p.h / 2 + 25);
+        ctx.fill();
+
+        ctx.restore();
 
         // Draw Zenith Projectiles
         projectilesRef.current.forEach(proj => {
@@ -323,11 +354,27 @@ const App = () => {
             {isMobile && (
                 <div style={{ position: 'fixed', bottom: '30px', left: 0, right: 0, display: 'flex', justifyContent: 'space-between', padding: '0 30px', zIndex: 100, pointerEvents: 'none' }}>
                     <div style={{ display: 'flex', gap: '15px', pointerEvents: 'auto' }}>
-                        <button onTouchStart={() => keysRef.current['KeyA'] = true} onTouchEnd={() => keysRef.current['KeyA'] = false} className="ctrl-btn">←</button>
-                        <button onTouchStart={() => keysRef.current['KeyD'] = true} onTouchEnd={() => keysRef.current['KeyD'] = false} className="ctrl-btn">→</button>
+                        <button 
+                            onContextMenu={(e) => e.preventDefault()}
+                            onTouchStart={(e) => { e.preventDefault(); keysRef.current['KeyA'] = true; }} 
+                            onTouchEnd={(e) => { e.preventDefault(); keysRef.current['KeyA'] = false; }} 
+                            className="ctrl-btn"
+                        >←</button>
+                        <button 
+                            onContextMenu={(e) => e.preventDefault()}
+                            onTouchStart={(e) => { e.preventDefault(); keysRef.current['KeyD'] = true; }} 
+                            onTouchEnd={(e) => { e.preventDefault(); keysRef.current['KeyD'] = false; }} 
+                            className="ctrl-btn"
+                        >→</button>
                     </div>
                     <div style={{ pointerEvents: 'auto' }}>
-                        <button onTouchStart={() => keysRef.current['Space'] = true} onTouchEnd={() => keysRef.current['Space'] = false} className="ctrl-btn" style={{ width: '100px', height: '100px', borderRadius: '50%', background: 'rgba(255, 64, 129, 0.4)' }}>JUMP</button>
+                        <button 
+                            onContextMenu={(e) => e.preventDefault()}
+                            onTouchStart={(e) => { e.preventDefault(); keysRef.current['Space'] = true; }} 
+                            onTouchEnd={(e) => { e.preventDefault(); keysRef.current['Space'] = false; }} 
+                            className="ctrl-btn" 
+                            style={{ width: '100px', height: '100px', borderRadius: '50%', background: 'rgba(255, 64, 129, 0.4)' }}
+                        >JUMP</button>
                     </div>
                 </div>
             )}
