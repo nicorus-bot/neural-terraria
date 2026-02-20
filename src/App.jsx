@@ -2,43 +2,58 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 // --- Constants ---
 const TILE_SIZE = 32;
-const WORLD_WIDTH = 300;
-const WORLD_HEIGHT = 150;
-const GRAVITY = 0.4;
+const WORLD_WIDTH = 350;
+const WORLD_HEIGHT = 200;
+const GRAVITY = 0.45;
 const JUMP_FORCE = -9.5;
 const MOVE_SPEED = 5.0;
 const FRICTION = 0.82;
 
-const TILE_TYPES = { AIR: 0, DIRT: 1, GRASS: 2, STONE: 3, WOOD: 4, ASH: 5, LAVA: 6, BRICK: 7, GOLD: 8, TORCH: 9 };
+const TILE_TYPES = { AIR: 0, DIRT: 1, GRASS: 2, STONE: 3, WOOD: 4, ASH: 5, LAVA: 6, BRICK: 7, GOLD: 8, TORCH: 9, CORRUPT_GRASS: 10 };
 const TILE_COLORS = {
     [TILE_TYPES.AIR]: null, [TILE_TYPES.DIRT]: '#8B4513', [TILE_TYPES.GRASS]: '#4CAF50', [TILE_TYPES.STONE]: '#757575',
     [TILE_TYPES.WOOD]: '#5D4037', [TILE_TYPES.ASH]: '#444444', [TILE_TYPES.LAVA]: '#FF4500', [TILE_TYPES.BRICK]: '#BDBDBD',
-    [TILE_TYPES.GOLD]: '#FFD700', [TILE_TYPES.TORCH]: '#FFEB3B'
+    [TILE_TYPES.GOLD]: '#FFD700', [TILE_TYPES.TORCH]: '#FFEB3B', [TILE_TYPES.CORRUPT_GRASS]: '#9C27B0'
+};
+
+const PIXEL_PATTERNS = {
+    [TILE_TYPES.DIRT]: [[0,0,1,0,0,0,1,0], [0,1,1,1,0,1,1,1], [1,1,0,1,1,1,0,1], [0,1,1,1,0,1,1,1], [0,0,1,0,0,0,1,0], [0,1,1,1,0,1,1,1], [1,1,0,1,1,1,0,1], [0,1,1,1,0,1,1,1]],
+    [TILE_TYPES.GRASS]: [[2,2,2,2,2,2,2,2], [2,2,2,2,2,2,2,2], [2,1,2,1,2,2,1,2], [1,1,1,1,1,1,1,1], [1,1,1,1,1,1,1,1], [1,0,1,0,1,1,0,1], [1,1,1,1,1,1,1,1], [1,1,1,1,1,1,1,1]],
+    [TILE_TYPES.STONE]: [[0,0,0,0,0,0,0,0], [0,1,1,1,0,1,1,0], [0,1,0,1,1,0,1,0], [0,1,1,1,0,1,1,0], [0,0,0,0,0,0,0,0], [0,1,1,0,1,1,1,0], [0,1,0,1,1,0,1,0], [0,1,1,1,0,1,1,0]],
+    [TILE_TYPES.ASH]: [[0,0,1,0,1,0,0,1], [0,1,1,1,1,1,0,0], [1,1,1,1,1,1,1,0], [0,1,1,1,1,1,1,1], [0,0,1,0,1,0,0,1], [0,1,1,1,1,1,0,0], [1,1,1,1,1,1,1,0], [0,1,1,1,1,1,1,1]],
+    [TILE_TYPES.CORRUPT_GRASS]: [[2,2,2,2,2,2,2,2], [2,2,2,2,2,2,2,2], [2,1,2,1,2,2,1,2], [1,1,1,1,1,1,1,1], [1,1,1,1,1,1,1,1], [1,0,1,0,1,1,0,1], [1,1,1,1,1,1,1,1], [1,1,1,1,1,1,1,1]],
 };
 
 const App = () => {
     const canvasRef = useRef(null);
     const worldRef = useRef([]);
-    const playerRef = useRef({ x: 4800, y: 500, vx: 0, vy: 0, w: 20, h: 36, onGround: false, facing: 1, hp: 100, mana: 100 });
+    const playerRef = useRef({ x: 4500, y: 500, vx: 0, vy: 0, w: 20, h: 36, onGround: false, facing: 1, hp: 100, maxHp: 100, mana: 100, maxMana: 100 });
     const keysRef = useRef({ left: false, right: false, jump: false, down: false });
     const cameraRef = useRef({ x: 0, y: 0 });
     const projectilesRef = useRef([]);
     const enemiesRef = useRef([]);
+    const npcsRef = useRef([]);
+    const particlesRef = useRef([]);
     const screenShakeRef = useRef(0);
     const audioCtxRef = useRef(null);
+    const timeRef = useRef(0);
     
     const [stats, setStats] = useState({ hp: 100, mana: 100 });
     const [selectedSlot, setSelectedSlot] = useState(2);
     const [isMuted, setIsMuted] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
+    const [gameTime, setGameTime] = useState(0); 
     const [gameReady, setGameReady] = useState(false);
+    const [isHardMode, setIsHardMode] = useState(false);
+    const [currentScreen, setCurrentScreen] = useState('TITLE');
 
     const inventory = [
         { type: TILE_TYPES.BRICK, label: '🧱' },
         { type: TILE_TYPES.TORCH, label: '🔦' },
+        { type: TILE_TYPES.CORRUPT_GRASS, label: '😈' },
         { type: 'ZENITH', label: '⚔️', isWeapon: true },
         { type: 'STAFF', label: '🪄', isWeapon: true },
-        { type: 'WINGS', label: '🦋', isFlight: true }
+        { type: 'WINGS', label: '🦋', isFlight: true },
     ];
 
     // --- BGM Synthesis ---
@@ -46,22 +61,35 @@ const App = () => {
         if (audioCtxRef.current) return;
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         if (!AudioContext) return;
+        
         audioCtxRef.current = new AudioContext();
         const ctx = audioCtxRef.current;
+        
         const playNote = (freq, time, duration, vol = 0.04, type = 'triangle') => {
-            const osc = ctx.createOscillator(); const gain = ctx.createGain();
-            osc.type = type; osc.frequency.setValueAtTime(freq, time);
-            gain.gain.setValueAtTime(vol, time); gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, time);
+            gain.gain.setValueAtTime(vol, time);
+            gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
             osc.connect(gain); gain.connect(ctx.destination);
             osc.start(time); osc.stop(time + duration);
         };
-        const melody = [{f:392,d:0.2},{f:392,d:0.2},{f:261,d:0.4},{f:329,d:0.4},{f:392,d:0.4},{f:523,d:0.4},{f:493,d:0.4},{f:392,d:0.4},{f:293,d:0.8}];
+
+        const melody = [
+            { f: 392, d: 0.2 }, { f: 392, d: 0.2 }, { f: 392, d: 0.2 }, { f: 392, d: 0.2 },
+            { f: 261, d: 0.4 }, { f: 329, d: 0.4 }, { f: 392, d: 0.4 }, { f: 523, d: 0.4 },
+            { f: 493, d: 0.4 }, { f: 392, d: 0.4 }, { f: 329, d: 0.4 }, { f: 293, d: 0.8 },
+            { f: 349, d: 0.4 }, { f: 440, d: 0.4 }, { f: 523, d: 0.4 }, { f: 659, d: 0.4 },
+            { f: 587, d: 0.4 }, { f: 493, d: 0.4 }, { f: 392, d: 0.4 }, { f: 523, d: 0.8 },
+        ];
+
         let nextTime = ctx.currentTime;
         const loop = () => {
             if (isMuted) { setTimeout(loop, 1000); return; }
             melody.forEach(n => {
                 playNote(n.f, nextTime, n.d * 2.5);
-                playNote(n.f / 2, nextTime, n.d * 2.5, 0.02, 'square');
+                playNote(n.f / 2, nextTime, n.d * 2.5, 0.02, 'square'); // Bass
                 nextTime += n.d;
             });
             setTimeout(loop, (nextTime - ctx.currentTime) * 1000 - 50);
@@ -76,29 +104,36 @@ const App = () => {
         }
     }, [isMuted]);
 
-    // --- Core Initialization ---
+    const spawnParticle = (x, y, color, count = 5) => {
+        for(let i=0; i<count; i++) {
+            particlesRef.current.push({ x, y, vx: (Math.random()-0.5)*12, vy: (Math.random()-0.5)*12, life: 1.0, color, size: Math.random()*5+2 });
+        }
+    };
+
     useEffect(() => {
         const newWorld = [];
         for (let y = 0; y < WORLD_HEIGHT; y++) {
             const row = [];
             for (let x = 0; x < WORLD_WIDTH; x++) {
-                const surfaceY = 60 + Math.sin(x * 0.1) * 5;
+                const surfaceY = 70 + Math.sin(x * 0.05) * 10;
+                const isCorruption = (x > 50 && x < 80) || (x > 180 && x < 210);
                 if (y > WORLD_HEIGHT - 20) row.push(Math.random() < 0.2 ? TILE_TYPES.LAVA : TILE_TYPES.ASH);
-                else if (y > surfaceY + 15) row.push(TILE_TYPES.STONE);
+                else if (y > WORLD_HEIGHT - 40) row.push(TILE_TYPES.HELLSTONE);
+                else if (y > surfaceY + 20) row.push(Math.random() < 0.02 ? TILE_TYPES.ORE_GOLD : TILE_TYPES.STONE);
                 else if (y > surfaceY) row.push(TILE_TYPES.DIRT);
-                else if (y > surfaceY - 1) row.push(TILE_TYPES.GRASS);
+                else if (y > surfaceY - 1) row.push(isCorruption ? TILE_TYPES.CORRUPT_GRASS : TILE_TYPES.GRASS);
                 else row.push(TILE_TYPES.AIR);
             }
             newWorld.push(row);
         }
         worldRef.current = newWorld;
-        enemiesRef.current = [{ type: 'KING_SLIME', x: 2500, y: 400, vx: 0, vy: 0, w: 100, h: 80, hp: 1000, maxHp: 1000, lastJump: 0 }];
+        enemiesRef.current = [{ type: 'KING_SLIME', x: 2500, y: 400, vx: 0, vy: 0, w: 100, h: 80, hp: 1000, maxHp: 1000, lastJump: 0, lastHit: 0 }];
+        npcsRef.current = [{ type: 'GUIDE', x: 2400, y: 100, vx: 0, vy: 0, w: 20, h: 36, dir: 1 }];
 
         const handleResize = () => {
             const canvas = canvasRef.current;
             if (canvas) {
-                // --- 2x Resolution Upgrade ---
-                const scale = 2;
+                const scale = 4; // --- 4x Resolution Upgrade ---
                 canvas.width = window.innerWidth * scale;
                 canvas.height = window.innerHeight * scale;
                 canvas.style.width = window.innerWidth + 'px';
@@ -124,7 +159,7 @@ const App = () => {
             if(e.code === 'ArrowDown' || e.code === 'KeyS') keysRef.current.down = false;
         };
         window.addEventListener('keydown', down); window.addEventListener('keyup', up);
-
+        
         let fId;
         const loop = () => { update(); draw(); fId = requestAnimationFrame(loop); };
         fId = requestAnimationFrame(loop);
@@ -145,20 +180,15 @@ const App = () => {
         if (keys.down) {
             const tx = Math.floor((p.x + p.w / 2) / TILE_SIZE);
             const ty = Math.floor((p.y + p.h + 5) / TILE_SIZE);
-            if (worldRef.current[ty] && worldRef.current[ty][tx] !== TILE_TYPES.AIR) { worldRef.current[ty][tx] = TILE_TYPES.AIR; screenShakeRef.current = 1; }
+            if (worldRef.current[ty] && worldRef.current[ty][tx] !== TILE_TYPES.AIR) { worldRef.current[ty][tx] = TILE_TYPES.AIR; screenShakeRef.current = 2; }
         }
 
-        // --- Flying Logic Fix (Wings) ---
-        const activeItem = inventory[selectedSlot];
-        const canFly = activeItem?.isFlight && keys.jump;
-        
-        if (canFly && p.mana > 0) {
-            p.vy = -5.5; // Stronger upward force
-            p.mana -= 0.6;
-            p.onGround = false;
-        } else {
-            p.vy += GRAVITY;
-            if (keys.jump && p.onGround) { p.vy = JUMP_FORCE; p.onGround = false; }
+        // Wings/Jump
+        const canFly = inventory[selectedSlot]?.type === 'WINGS' && keys.jump;
+        p.vy += canFly ? 0.1 : GRAVITY;
+        if (keys.jump) {
+            if (p.onGround) { p.vy = JUMP_FORCE; p.onGround = false; }
+            else if (canFly && p.mana > 0) { p.vy = -5.5; p.mana -= 0.7; }
         }
 
         p.x += p.vx; resolveCollision(p, 'x');
@@ -185,6 +215,7 @@ const App = () => {
             en.x += en.vx; en.vx *= 0.95;
             if (Math.abs(p.x - en.x) < 30 && Math.abs(p.y - en.y) < 30) { p.hp -= 0.8; screenShakeRef.current = 2; }
         });
+
         if (p.x < 0) p.x = 0; if (p.x > WORLD_WIDTH * TILE_SIZE - p.w) p.x = WORLD_WIDTH * TILE_SIZE - p.w;
     };
 
@@ -270,12 +301,22 @@ const App = () => {
         );
     };
 
+    const TitleScreen = () => (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '2em', background: '#000', zIndex: 2000, backdropFilter: 'blur(15px)' }}>
+            <h1 style={{ color: '#00f2ff', fontSize: isMobile ? '3em' : '5em', fontWeight: '900', letterSpacing: '15px', textShadow: '0 0 50px #00f2ff88' }}>NEURAL TERRARIA</h1>
+            <p style={{ color: '#ff0055', fontSize: isMobile ? '1em' : '1.5em', marginTop: '-10px', textShadow: '0 0 10px #ff005588' }}>V26</p>
+            <button onClick={() => { setGameReady(true); playTerrariaTheme(); }} style={{ marginTop: '60px', padding: '20px 80px', fontSize: '1.5em', cursor: 'pointer', background: 'linear-gradient(45deg, #00f2ff, #ff0055)', color: 'white', border: '4px solid #fff', borderRadius: '50px', fontWeight: '900', transition: 'all 0.3s', boxShadow: '0 0 40px rgba(0, 242, 255, 0.5)' }}>START ADVENTURE</button>
+            <p style={{ marginTop: '40px', fontSize: '0.8em', color: '#aaa' }}>Click/Tap to Begin & Enable Sound</p>
+        </div>
+    );
+
     return (
         <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', position: 'relative', touchAction: 'none', background: '#000', userSelect: 'none', WebkitUserSelect: 'none' }}>
-            {!gameReady && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '2em', background: '#000', zIndex: 2000 }}>LOADING...</div>}
-            <canvas ref={canvasRef} onMouseDown={handleAction} onTouchStart={handleAction} style={{ display: 'block' }} />
+            {!gameReady && <TitleScreen />}
+            <canvas ref={canvasRef} onMouseDown={gameReady && currentScreen === 'GAME' ? handleAction : null} onTouchStart={gameReady && currentScreen === 'GAME' ? handleAction : null} style={{ display: 'block' }} />
+            
             <div style={{ position: 'fixed', top: '20px', right: '20px', textAlign: 'right', zIndex: 100 }}>
-                <div style={{ color: '#fff', fontSize: '1.2em', fontWeight: 'bold', fontFamily: 'Orbitron' }}>NEURAL TERRARIA v25</div>
+                <div style={{ color: '#fff', fontSize: '1.2em', fontWeight: 'bold', fontFamily: 'Orbitron' }}>NEURAL TERRARIA v26</div>
                 <div style={{ width: '200px', height: '15px', background: '#222', border: '2px solid #fff', borderRadius: '8px', margin: '8px 0', overflow: 'hidden' }}>
                     <div style={{ width: `${stats.hp}%`, height: '100%', background: '#ff1744' }} />
                 </div>
@@ -283,6 +324,7 @@ const App = () => {
                     <div style={{ width: `${stats.mana}%`, height: '100%', background: '#2979ff' }} />
                 </div>
             </div>
+
             <div style={{ position: 'fixed', top: '20px', left: '20px', display: 'flex', gap: '8px', zIndex: 100 }}>
                 {inventory.map((item, idx) => (
                     <div key={idx} onPointerDown={(e) => { e.stopPropagation(); setSelectedSlot(idx); playTerrariaTheme(); }} style={{ width: '50px', height: '50px', background: selectedSlot === idx ? '#fff' : 'rgba(255,255,255,0.3)', border: selectedSlot === idx ? '3px solid #ff4081' : '2px solid #fff', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px', cursor: 'pointer' }}>{item.label}</div>
